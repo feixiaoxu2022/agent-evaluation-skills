@@ -38,14 +38,14 @@ Skills体系的最终目标是支持构建能够全方位评测LLM Agent在实�
 
 ## Skills索引
 
-### 🎨 设计阶段
+### <img src="https://img.shields.io/badge/-%E8%AE%BE%E8%AE%A1-blue?style=flat-square&logo=figma&logoColor=white" height="20"/> 设计阶段
 
 | Skill | 用途 | 核心内容 |
 |-------|------|---------|
 | [scenario_design_sop](scenario_design_sop/) | 场景设计SOP | 五种设计方法、YAML结构、需求模板设计、能力覆盖映射 |
 | [business_rules_authoring](business_rules_authoring/) | 业务规则编写 | 结构化模板、可验证性原则、规则设计模式 |
 
-### ⚙️ 实现阶段
+### <img src="https://img.shields.io/badge/-%E5%AE%9E%E7%8E%B0-green?style=flat-square&logo=codacy&logoColor=white" height="20"/> 实现阶段
 
 | Skill | 用途 | 核心内容 |
 |-------|------|---------|
@@ -53,13 +53,13 @@ Skills体系的最终目标是支持构建能够全方位评测LLM Agent在实�
 | [checker_implementation](checker_implementation/) | Checker实现 | 验证策略、类型选择、rule-based优先原则 |
 | [sample_authoring](sample_authoring/) | 样本合成 | 格式规范、质量标准、生成器模板、JSONL格式 |
 
-### 🧪 评测阶段
+### <img src="https://img.shields.io/badge/-%E8%AF%84%E6%B5%8B-orange?style=flat-square&logo=testinglibrary&logoColor=white" height="20"/> 评测阶段
 
 | Skill | 用途 | 核心内容 |
 |-------|------|---------|
 | [evaluation_execution](evaluation_execution/) | 评测执行 | benchkit使用、命令规范、调试技巧、3次失败规则 |
 
-### 📊 分析阶段
+### <img src="https://img.shields.io/badge/-%E5%88%86%E6%9E%90-purple?style=flat-square&logo=googleanalytics&logoColor=white" height="20"/> 分析阶段
 
 | Skill | 用途 | 核心内容 |
 |-------|------|---------|
