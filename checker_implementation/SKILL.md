@@ -63,7 +63,85 @@ if __name__ == "__main__":
 
 ---
 
+## Checker 类型的职责分层
+
+### 分层原则：避免重复校验
+
+| Checker 类型 | 职责 | 典型场景 | 不应该做 |
+|-------------|------|---------|---------|
+| **json_schema** | 纯结构校验 | 验证 JSON 是否符合 schema | ❌ 不校验值的业务合理性 |
+| **entity_attribute_equals** | 值的业务规则校验 | 验证"钩子长度15-50字" | ❌ 不校验 JSON 格式 |
+| **semantic_check_with_llm** | 语义质量校验 | 验证"钩子是否引发好奇心" | ❌ 不校验格式和数值 |
+
+### 示例：选题简报的三层校验
+
+**第一层：结构校验**（json_schema）
+```yaml
+check_list:
+  - check_type: "json_schema_validation"
+    params:
+      file_path: "outputs/topic_brief.json"
+      schema_path: "specs/topic_brief_schema.json"
+    description: "验证选题简报的 JSON 结构完整性"
+```
+
+**第二层：业务规则校验**（entity_attribute_equals）
+```yaml
+  - check_type: "string_length_in_range"
+    params:
+      file_path: "outputs/topic_brief.json"
+      field: "hook"
+      min_length: 15
+      max_length: 50
+    description: "验证钩子长度符合 skill 要求"
+```
+
+**第三层：语义质量校验**（semantic）
+```yaml
+  - check_type: "semantic_quality_check"
+    params:
+      file_path: "outputs/topic_brief.json"
+      field: "hook"
+      criteria: "钩子是否体现了核心冲突和悬念"
+      use_llm_judge: true
+    description: "验证钩子的创意质量"
+```
+
+### 避免重复校验的决策树
+
+```
+这个检查点应该用什么 Checker？
+    │
+    ├─ Q1: 检查的是 JSON 结构吗（字段存在、类型正确）？
+    │   └─ YES → json_schema
+    │
+    ├─ Q2: 检查的是数值/长度/格式等业务规则吗？
+    │   └─ YES → entity_attribute_equals 或 specialized checker
+    │
+    └─ Q3: 检查的是语义质量、创意水平、合理性吗？
+        └─ YES → semantic_check_with_llm
+```
+
+---
+
 ## 可用check_type速查
+
+### ⚠️ 设计原则：优先复用成熟Checker
+
+**核心原则**：优先使用下表中已有的成熟checker类型，必要时再设计新的。
+
+**为什么优先复用**：
+- ✅ 已有checker经过多场景验证，稳定可靠
+- ✅ 减少重复开发，提高效率
+- ✅ 保持验证逻辑的一致性
+- ✅ 降低维护成本
+
+**何时添加新checker**：
+- 现有checker无法满足验证需求
+- 验证逻辑在多个场景中复用（至少2-3个场景）
+- 新checker提供显著的可读性或可维护性提升
+
+### 成熟的Checker类型
 
 | check_type | 用途 | 关键参数 |
 |------------|------|---------|

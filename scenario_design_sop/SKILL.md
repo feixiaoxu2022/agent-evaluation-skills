@@ -94,6 +94,156 @@ business_rules:           # 业务规则
 
 **完整模板**：[references/scenario_template.yaml](references/scenario_template.yaml)
 
+## 关键概念：Entity vs 外部知识
+
+### Entity（实体）的定义
+
+**Entity 是样本合成时的变量**，分为两类：
+
+1. **Query 变量**：出现在用户需求中的可变参数
+   - 例如：用户指定的题材、目标受众、集数要求
+   - 这些会直接影响 query 的生成
+
+2. **Environment 变量**：环境中的可变数据
+   - 例如：不同的订单记录、不同的用户数据池
+   - 这些是 Agent 可以查询的背景信息
+
+**不应该作为 Entity 的**：
+- ❌ 领域知识（如"都市甜宠短剧的创作原则"）→ 应该放在 Skill 文档中，作为可查询的知识
+- ❌ 固定的格式规范 → 应该放在 format_specifications 中
+- ❌ 通用的业务规则 → 应该放在 business_rules 或 BusinessRules.md 中
+
+### 决策树：这个信息应该放在哪里？
+
+```
+Q1: 这个信息在不同样本之间会变化吗？
+    ├─ YES → 继续 Q2
+    └─ NO  → 不是 Entity（考虑 Skill/Format/BusinessRules）
+
+Q2: 变化的内容是用户需求的一部分还是环境背景？
+    ├─ 用户需求 → Query Variable Entity
+    └─ 环境背景 → Environment Variable Entity
+
+Q3: 这个信息是原始数据还是规则/知识？
+    ├─ 原始数据 → Environment Entity (在 environment 或 datapool 中)
+    └─ 规则/知识 → Skill Entity (可查询的领域知识)
+```
+
+### 示例：短剧创作场景
+
+**正确的 Entity 设计**：
+```yaml
+entities:
+  genre_skill:  # Skill Entity（领域知识）
+    type: "knowledge_base"
+    description: "题材相关的创作指南"
+    attributes:
+      genre_type: string    # 变量：都市甜宠、古装权谋等
+      skill_file: file      # 指向 datapool 中的 skill 文档
+```
+
+**不正确的设计**：
+```yaml
+# ❌ 错误示例1：把 Skill 内容直接写在 Entity 中
+entities:
+  genre_rules:
+    attributes:
+      sweet_romance_rules: "甜宠剧的钩子必须包含..."  # 错误：这是固定知识
+
+# ❌ 错误示例2：把格式规范当作 Entity
+entities:
+  topic_brief:
+    attributes:
+      format: "钩子长度15-50字"  # 错误：这是格式约束，应该在 format_specifications 中
+```
+
+## Business Rules 设计原则
+
+### 三个核心判断标准
+
+在 YAML 的 `business_rules` 中放入规则前，必须满足以下三个条件：
+
+1. **通用性检查**：这个规则是否适用于所有题材/所有样本？
+   - ✅ 例如："选题简报必须包含钩子、价值主张、关键元素"
+   - ❌ 例如："甜宠剧的钩子要体现甜蜜感" → 应该放在题材 Skill 中
+
+2. **必要性检查**：Agent 看不到这个规则会无法完成任务吗？
+   - ✅ 例如："角色卡必须包含8个维度"（格式要求）
+   - ❌ 例如："应该先创建选题再设计角色" → Agent 可以自主规划
+
+3. **不可推理性检查**：Agent 通过常识或上下文无法推理出这个规则吗？
+   - ✅ 例如:"集数默认为3，除非用户明确指定" → 必须明确告知
+   - ❌ 例如："短剧需要有故事情节" → 常识，不需要写
+
+### 放入 business_rules 的典型内容
+
+| 类型 | 示例 | 为什么放这里 |
+|------|------|-------------|
+| **格式规范** | "钩子长度15-50字" | 必须明确的约束 |
+| **默认值逻辑** | "集数默认3，用户可指定" | 无法推理的决策规则 |
+| **字段必填性** | "角色卡必须包含8个维度" | 交付物的强制要求 |
+| **数值边界** | "场景数量不超过3个" | 明确的业务约束 |
+
+### 不应该放入 business_rules 的内容
+
+| 类型 | 示例 | 应该放在哪里 |
+|------|------|-------------|
+| **流程描述** | "先创建选题，再设计角色" | 不需要（Agent 自主规划） |
+| **题材特定规则** | "都市剧的角色要贴近生活" | 题材 Skill 文档 |
+| **创作技巧** | "钩子要能引发好奇心" | 题材 Skill 文档 |
+| **详细格式** | JSON Schema 定义 | format_specifications.json |
+
+### 决策流程图
+
+```
+这条规则应该放在 business_rules 中吗？
+    │
+    ├─ Q1: 是否适用所有题材/样本？
+    │   └─ NO → 放入题材 Skill 或 user_need_template
+    │
+    ├─ Q2: Agent 看不到会无法完成任务吗？
+    │   └─ NO → 不需要放（Agent 可自主决策）
+    │
+    ├─ Q3: 这是格式细节（JSON 结构）吗？
+    │   └─ YES → 放入 format_specifications.json
+    │
+    └─ 三个条件都满足 → 可以放入 business_rules
+```
+
+### 格式规范的分离原则
+
+建议将详细的格式规范独立到 `format_specifications` 中：
+
+**Before (不推荐)**：
+```yaml
+business_rules:
+  rule_topic_format:
+    description: "选题简报格式要求"
+    constraints:
+      - "钩子长度15-50字"
+      - "必须包含核心元素、冲突和价值主张"
+      - "JSON 格式：{hook: string, elements: [...], ...}"
+```
+
+**After (推荐)**：
+```yaml
+# YAML 中只保留高层描述
+business_rules:
+  rule_topic_format:
+    description: "选题简报必须符合 format_specifications 中的 topic_brief_schema"
+
+# 详细格式规范放在独立文档
+format_specifications:
+  - spec_name: "topic_brief_schema"
+    file_path: "datapool/specs/topic_brief_format.json"
+    description: "选题简报的完整格式规范（JSON Schema）"
+```
+
+**优势**：
+1. Business Rules 保持简洁，只描述"必须遵守什么规范"
+2. 格式细节结构化，便于 Checker 验证
+3. Agent 可以通过文件读取获取详细规范（像 Skill 一样）
+
 ## 环境隔离设计（重要）
 
 **执行机制**：每个样本在独立临时目录中执行，由executor自动创建和清理。
@@ -141,6 +291,67 @@ templates:
 ```
 
 **详细指南**：[references/need_template_design.md](references/need_template_design.md)
+
+### 参数配置原则：配置化而非解析化
+
+**核心原则**：在 template 中明确配置所有参数，而不是依赖运行时从 query 文本中 NLP 解析。
+
+**正确做法**：在 template 中明确配置参数
+```yaml
+templates:
+- need_template_id: SD_SWEET_10_EPISODES
+  description: "10集的甜宠短剧创作"
+
+  # ✅ 明确配置参数
+  parameters:
+    genre: "sweet_romance"
+    episode_count: 10
+    target_audience: "18-34岁女性"
+
+  # Query 模板引用这些参数
+  user_need_description: |
+    我想做一个都市甜宠短剧，共{episode_count}集。
+    目标受众：{target_audience}
+
+  # Checker 使用相同的参数验证
+  check_list:
+    - check_type: "file_count"
+      params:
+        directory: "outlines/"
+        expected_count: 10  # 直接使用配置的值
+```
+
+**错误做法**：依赖文本解析
+```yaml
+templates:
+- need_template_id: SD_SWEET_CUSTOM
+  # ❌ 错误：让 Checker 从 query 中解析集数
+  user_need_description: |
+    我想做一个10集的短剧
+
+  check_list:
+    - check_type: "file_count"
+      params:
+        directory: "outlines/"
+        # ❌ 用规则从 query 提取：如果 query 包含"X集"...
+        extract_from_query: "\\d+集"
+```
+
+### 参数的两种来源
+
+1. **固定参数**：在 template 配置中直接指定
+   ```yaml
+   parameters:
+     episode_count: 10  # 固定值
+   ```
+
+2. **变量参数**：从 entity 数据池中采样
+   ```yaml
+   entity_filter:
+     genre_type: "sweet_romance"  # 筛选条件
+   ```
+
+**关键**：无论哪种方式，参数都应该是**已知的、结构化的**，而不是依赖运行时从文本中 NLP 解析。
 
 ## 设计流程（3步）
 
