@@ -8,6 +8,8 @@ description: 执行Agent自动评测。理解BenchKit框架架构，配置和运
 
 评测执行是Step 4的核心工作，使用BenchKit框架批量执行样本任务并评估Agent表现。
 
+**评测框架**：[MCP-Benchmark](https://github.com/feixiaoxu2022/mcp-benchmark)
+
 **输入**：工作目录 + 样本文件(JSONL) + 模型配置
 **输出**：执行结果 + 评测报告
 

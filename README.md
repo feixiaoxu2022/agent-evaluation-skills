@@ -1,14 +1,24 @@
-# Skills 体系总览
+# Agent Evaluation Skills
+
+[![GitHub](https://img.shields.io/badge/github-agent--evaluation--skills-blue)](https://github.com/feixiaoxu2022/agent-evaluation-skills)
+[![License](https://img.shields.io/badge/license-MIT-green)]()
 
 ## 简介
 
-Skills是为LLM Agent评测场景自动合成系统设计的**标准化知识模块体系**，提供从场景设计到失败分析的全流程方法论支持。
+Agent Evaluation Skills是为LLM Agent评测场景设计的**标准化知识模块体系**，提供从场景设计到失败分析的全流程方法论支持。
 
 **核心特点**：
 - **项目解耦**：skills内容与具体项目目录结构无关，可移植到任何项目
 - **模块化设计**：每个skill专注一个领域，可独立使用或组合使用
-- **Agent友好**：通过`use_skill`工具调用，Agent可按需获取领域知识
+- **Agent友好**：结构化内容，便于LLM解析和学习
 - **完整方法论**：覆盖设计、实现、评测、分析全生命周期（7个标准skill模块）
+
+## 配套评测框架
+
+这套 Skills 配合 [MCP-Benchmark](https://github.com/feixiaoxu2022/mcp-benchmark) 评测框架使用：
+
+- **Skills**（本仓库）：提供方法论、模板和最佳实践
+- **MCP-Benchmark**：提供 Executor、Evaluator 等运行时组件
 
 ## 评测目标：9个核心能力
 
