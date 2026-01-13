@@ -35,6 +35,7 @@ Step 2: 识别约束性规则
 
 Step 3: 转化为业务语言
   └─ 将YAML中的技术配置转化为自然语言规则
+  └─ 保持YAML中已定义的约束力度（强制性/条件性/建议性）
   └─ 使用"触发条件-动作-回复"三要素格式
   └─ 避免泄露工具名、字段名等技术细节
 
@@ -45,6 +46,10 @@ Step 4: 质量检查
 ```
 
 **核心原则**：不是从零设计规则，而是从YAML中提取和转化规则。
+
+**职责边界**：
+- ✅ 本skill职责：将YAML中的规则转化为业务语言，保持约束力度不变
+- ❌ 不负责：规则设计、约束力度选择、优先级设计（这些在 scenario_design_sop 中完成）
 
 ## 标准规则格式
 
@@ -163,6 +168,7 @@ Step 4: 质量检查
 |---------|---------|
 | [ad_campaign_BusinessRules.md](examples/ad_campaign_BusinessRules.md) | 数据驱动决策、多维度分析、渐进式信息收集 |
 | [intelligent_task_assignment_BusinessRules.md](examples/intelligent_task_assignment_BusinessRules.md) | 优先级排序、负载计算、技能匹配 |
+| [shortdrama_BusinessRules.md](examples/shortdrama_BusinessRules.md) | **创作向场景典范**：约束力度设计（强制性表达）、优先级明确（HITL工具优先）、任务范围识别。展示了如何为交付结果不易自动评测的创作类场景设计可验证的业务规则。 |
 
 **完整案例索引**：[examples/README.md](examples/README.md)（含设计模式提取和质量对比分析）
 

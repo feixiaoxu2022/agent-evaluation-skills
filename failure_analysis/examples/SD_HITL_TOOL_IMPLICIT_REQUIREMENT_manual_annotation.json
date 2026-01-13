@@ -1,0 +1,91 @@
+{
+  "scenario_id": "shortdrama_hitl_tool_implicit",
+  "scenario_type": "shortdrama_creation",
+  "model": "未指定（通用问题）",
+  "evaluation_file": "evaluation_outputs/20260113_111205/check/cases/check_SD_MISSING_GENRE_INFO_SWEET_ROMANCE.json",
+  "failure_summary": "Agent在识别到题材信息缺失后，用自然语言询问了用户，但没有调用request_human_review工具，导致所有工具调用验证检查失败。根本原因是BusinessRules中只描述了'必须主动询问用户'，但没有明确说明必须使用特定工具进行交互，Agent需要自行从tools_description推断工具选择，这增加了测试难度。",
+  "analysis": {
+    "basic_metrics": {
+      "total_turns": 1,
+      "task_completion_rate": 0.0,
+      "behavior_correctness": "Agent正确识别信息缺失并询问，但工具选择错误"
+    },
+    "conversation_key_turns": [
+      {
+        "turn": 1,
+        "user": "我想做短剧。",
+        "agent_response": "您好！很高兴为您提供短剧创作服务。\\n\\n首先，我需要了解您想要创作什么题材的短剧。根据我的专业领域，我可以协助您创作以下四种题材的短剧：\\n\\n1. **都市甜宠** - 甜蜜恋爱、人设反差、高糖密度\\n2. **复仇爽剧** - 压抑→爽快的情绪曲线、连续打脸、黑化觉醒\\n3. **年代家庭** - 时代感、家庭温情、代际冲突、现实与希望\\n4. **悬疑推理** - 悬念布局、逻辑自洽、反转冲击、线索公平\\n\\n请告诉我您想要创作哪个题材的短剧？...",
+        "note": "Agent用自然语言询问，但没有调用request_human_review工具"
+      }
+    ],
+    "expectation_vs_actual": {
+      "expected": "调用request_human_review(stage='信息收集', type='question', question='您想要创作哪个题材...', options=[...])",
+      "actual": "纯文本回复询问，tool_call_list为空",
+      "check_evidence": "check_list期望tool_called_with_params验证工具调用，但conversation_history中无tool_calls"
+    }
+  },
+  "final_state_validation": {
+    "tool_boundary": "request_human_review工具设计用于与用户交互，支持confirmation和question两种模式",
+    "agent_calls": "Agent正确识别了信息缺失，但选择用自然语言交互而非调用工具",
+    "business_rules": "规则4只描述'必须主动询问用户'，未明确说明必须使用request_human_review工具",
+    "conclusion": "样本设计问题（BusinessRules隐式工具要求，测试难度校准问题）"
+  },
+  "root_causes": [
+    {
+      "type": "样本设计问题",
+      "dimension": ["BusinessRules规范不完整", "隐式工具调用要求", "测试难度校准"],
+      "evidence": [
+        "BusinessRules规则4：'必须主动询问用户'（描述性，未指定工具）",
+        "unified_scenario_design.yaml tools_description：定义了request_human_review工具及其用途",
+        "Agent实际行为：正确识别信息缺失+用自然语言询问（符合规则4的字面描述）",
+        "check_list期望：tool_called_with_params验证request_human_review调用",
+        "Checker结果：8个检查项全部失败（工具未调用导致后续流程中断）"
+      ],
+      "reasoning": "这是BusinessRules规范完整性的问题。在修改BusinessRules为'描述性而非指令性'以提升测试难度后，规则4只说明了'必须主动询问用户'，但没有明确说明'必须使用request_human_review工具进行询问'。这要求Agent自行完成两步推理：(1) 从BusinessRules识别需要询问用户；(2) 从available tools中选择合适的工具（request_human_review）。Agent完成了第1步但未完成第2步，选择用自然语言交互代替工具调用。这揭示了一个测试设计决策点：隐式工具调用要求（只描述行为不指定工具）vs显式工具调用要求（明确说明使用XX工具）。前者增加测试难度，考察Agent的工具选择能力；后者降低难度，聚焦于流程理解。当前设计选择了前者，但需要评估这种难度对不同模型是否合理。"
+    }
+  ],
+  "improvements": [
+    {
+      "area": "测试难度校准评估",
+      "action": "分析多个模型在该样本上的表现，评估'隐式工具调用要求'的合理性。如果大部分模型都失败，说明测试难度过高，需要调整。可以考虑两种方案：(1) 保持当前难度，测试C4 Tool Use能力（工具选择）；(2) 在BusinessRules中增加工具选择指导，降低难度，聚焦于流程理解和信息收集能力。",
+      "owner": "场景设计侧",
+      "priority": "P1"
+    },
+    {
+      "area": "BusinessRules完整性（如果选择降低难度）",
+      "action": "方案1：在规则4中增加工具使用说明：'当需要与用户交互时，使用request_human_review工具。该工具支持两种模式：(1)确认模式(type=confirmation)用于关键节点确认；(2)询问模式(type=question)用于信息收集。'\\n\\n方案2：在tools_description中更明确地说明使用场景：'request_human_review: 与用户交互的统一工具。规则4中要求的所有用户确认和询问都应通过此工具实现。参数：...'",
+      "owner": "配置侧",
+      "priority": "P2（取决于难度评估结果）"
+    },
+    {
+      "area": "工具设计文档化",
+      "action": "在PROJECT_DEVELOPMENT_STANDARDS中明确说明：当设计需要Agent与用户交互的场景时，需要在BusinessRules和tools_description之间建立清晰的映射关系。可以采用：(1)显式映射（规则中明确指定工具名）- 适合聚焦流程测试；(2)隐式映射（规则描述行为，Agent推断工具）- 适合测试工具选择能力。",
+      "owner": "框架文档侧",
+      "priority": "P1"
+    }
+  ],
+  "scenario_characteristics": {
+    "type": "隐式要求型",
+    "complexity": "高",
+    "key_constraints": [
+      "工具选择能力（从描述性规则推断工具使用）",
+      "信息收集行为（识别缺失信息并询问）",
+      "HITL交互规范（使用正确的工具和参数）"
+    ],
+    "tested_capabilities": [
+      "C4: Tool Use（工具选择和参数构造）",
+      "C3: Prompt遵循（理解隐式要求）",
+      "C6: 多轮对话管理与用户引导（信息收集）"
+    ]
+  },
+  "related_cases": [
+    "SD_CORE_ELEMENT_ENUM_HARDCODED：同一轮评测发现的配置问题",
+    "SD_TOOL_NAME_PREFIX_MISMATCH：同一轮评测发现的工具调用问题"
+  ],
+  "analysis_notes": {
+    "agent_behavior_analysis": "Agent的行为在语义层面是正确的：(1)识别了query中缺少题材信息；(2)主动列出了4个可选题材；(3)用清晰的自然语言询问用户选择；(4)还额外询问了任务范围和集数。这些都符合BusinessRules规则4的要求。唯一的问题是：没有使用request_human_review工具，而是用自然语言直接交互。",
+    "design_tradeoff": "这个case揭示了一个重要的设计权衡：\\n\\n**选择1：隐式工具要求（当前）**\\n- 优点：测试Agent的工具选择能力，真实模拟实际应用场景\\n- 缺点：增加测试难度，可能导致能力优秀但工具选择不当的模型失败\\n- 适用场景：Tool Use能力作为核心测试目标\\n\\n**选择2：显式工具要求**\\n- 优点：降低工具选择难度，聚焦于流程理解和信息收集逻辑\\n- 缺点：减少了对Tool Use的考察深度\\n- 适用场景：流程规划和信息管理作为核心测试目标\\n\\n当前设计选择了选择1，但需要根据实际评测结果校准难度。",
+    "fix_consideration": "在修复这个问题之前，需要先回答：这种失败是我们期望的（测试Tool Use能力），还是样本设计不合理？如果多数模型都能正确识别信息缺失但工具选择错误，说明这是有效的能力区分点。如果所有模型都失败，说明测试过于严格，需要调整。建议：先不修改，等待更多评测数据后再决定。",
+    "key_insight": "这个案例揭示了BusinessRules规范设计的一个关键原则：描述性（what）vs指令性（how）的平衡。完全描述性的规则（只说做什么，不说怎么做）可以测试Agent的自主规划能力，但可能导致'行为正确但实现方式错误'的假失败。完全指令性的规则（明确每一步操作）降低了测试难度，但可能无法有效区分模型能力。理想的设计是：核心流程使用描述性规则（测试规划能力），关键操作给出明确指导（避免歧义）。对于HITL这种关键交互机制，可能需要更明确的工具使用指导。"
+  }
+}

@@ -1,0 +1,101 @@
+{
+  "scenario_id": "shortdrama_tool_schema_literal",
+  "scenario_type": "shortdrama_creation",
+  "model": "未指定（系统性问题）",
+  "evaluation_file": "evaluation_outputs/20260113_114645/check/cases/check_SD_MISSING_GENRE_INFO_REVENGE_DRAMA.json",
+  "failure_summary": "Agent正确调用了request_human_review工具进行题材询问，使用了stage='题材选择'参数，但工具内部实现用stage作为key去hitl_responses字典查找答案，而字典配置的key是'信息收集'，导致查找失败。根本原因是工具schema定义为str类型没有约束具体值，但工具实现内部逻辑是写死的（依赖特定的key值），schema与实现不一致。",
+  "analysis": {
+    "basic_metrics": {
+      "tool_design_issue": true,
+      "schema_implementation_mismatch": true
+    },
+    "tool_implementation_analysis": {
+      "original_schema": "stage: Annotated[str, Field(description='当前阶段名称，如：选题简报、角色设计、分集大纲')]",
+      "internal_logic": "if stage not in hitl_responses: return {'error': f'未找到阶段 {stage} 的预设答案'}",
+      "hitl_responses_config": "{'信息收集': {'answer': '复仇爽剧'}}",
+      "problem": "schema是开放str类型，但实现要求stage必须匹配hitl_responses的key"
+    },
+    "agent_behavior": {
+      "call": "request_human_review(stage='题材选择', type='question', ...)",
+      "reasoning": "Agent看到schema允许任意字符串，选择了语义合理的'题材选择'",
+      "expected_error": "工具返回：未找到阶段 '题材选择' 的预设答案"
+    },
+    "expectation_vs_actual": {
+      "schema_says": "stage可以是任意描述性字符串（str类型）",
+      "implementation_requires": "stage必须精确匹配hitl_responses字典的key",
+      "consequence": "Agent根据schema使用合理命名，但运行时失败"
+    }
+  },
+  "final_state_validation": {
+    "tool_schema_review": "原schema用str类型+示例说明，暗示可以灵活命名，但没有明确约束",
+    "tool_implementation_review": "实现逻辑硬编码依赖特定key值，question模式下stage必须在['信息收集']中，confirmation模式下必须在['选题简报', '角色设计', '分集大纲']中",
+    "hitl_responses_config": "每个样本的hitl_responses字典配置了预设的stage-answer映射",
+    "conclusion": "工具设计问题（schema与实现不一致）"
+  },
+  "root_causes": [
+    {
+      "type": "工具设计问题",
+      "dimension": ["schema与实现不一致", "类型约束缺失"],
+      "evidence": [
+        "工具schema定义：stage: str类型，description包含'如：选题简报、角色设计、分集大纲'",
+        "工具实现逻辑：if stage not in hitl_responses: return error",
+        "样本配置：hitl_responses = {'信息收集': {'answer': '复仇爽剧'}}",
+        "Agent行为：使用stage='题材选择'（符合schema但不在字典中）",
+        "运行时结果：工具返回错误'未找到阶段题材选择的预设答案'",
+        "check_list期望：stage='信息收集'"
+      ],
+      "reasoning": "这是一个典型的工具schema与实现不一致问题。工具内部实现有明确的硬编码逻辑：在question模式下用stage参数作为key去hitl_responses字典查找预设答案。这意味着stage参数实际上只能取字典中存在的key值。但工具的schema定义却是开放的str类型，只给了一些示例说明，没有用Literal类型约束具体的枚举值。这导致Agent看到schema时会认为可以灵活命名（如'题材选择''题材确认''题材询问'），但实际调用时只有特定值才能成功（如'信息收集'）。这种不一致会导致两个问题：(1) Agent可能选择语义正确但不匹配的值，导致运行时失败；(2) 测试变成了'猜参数值'游戏，而不是测试Agent的真实能力。正确的设计是：如果工具实现依赖特定的枚举值，schema就应该用Literal[...]明确约束，让Agent看到明确的可选值列表。"
+    }
+  ],
+  "improvements": [
+    {
+      "area": "工具schema设计",
+      "action": "修改env/shortdrama_service.py的request_human_review工具定义，使用Literal类型强约束参数：\n\n1. 添加import：from typing import Literal\n2. 修改stage参数：stage: Annotated[Literal['信息收集', '选题简报', '角色设计', '分集大纲'], Field(description='当前阶段名称，仅支持：信息收集（询问模式）、选题简报（确认模式）、角色设计（确认模式）、分集大纲（确认模式）')]\n3. 修改type参数：type: Annotated[Literal['confirmation', 'question'], Field(description='交互类型：confirmation（确认）或 question（询问）')]\n\n原因：schema应该精确反映实现逻辑的约束，内部实现依赖特定值就应该在类型层面约束。",
+      "owner": "工具实现侧",
+      "priority": "P0"
+    },
+    {
+      "area": "check_list配置",
+      "action": "恢复unified_scenario_design.yaml中SD_MISSING_GENRE_INFO模板的stage参数验证（之前因为认为是过度约束而去掉了）。现在工具schema已经约束了stage必须是'信息收集'，check_list验证这个值是合理的。",
+      "owner": "配置侧",
+      "priority": "P0"
+    },
+    {
+      "area": "工具设计规范",
+      "action": "在tool_implementation skill中增加工具参数设计原则：\n\n**参数类型选择规范**：\n1. 开放文本参数（如file content, question text）→ str类型\n2. 枚举参数（内部逻辑依赖特定值）→ Literal[...]类型\n3. 字典key参数（用于查找配置）→ Literal[...]类型，与配置keys严格对应\n4. 路径参数（需要验证存在性）→ str类型，在实现中做validation\n\n**关键原则**：schema的类型约束应该与实现逻辑的约束保持一致。如果实现只能处理特定值，schema就应该明确约束这些值。",
+      "owner": "框架文档侧",
+      "priority": "P1"
+    },
+    {
+      "area": "工具实现review checklist",
+      "action": "在代码review时增加检查项：\n1. 参数是否用于字典查找？→ 类型应该是Literal，枚举值与字典keys一致\n2. 参数是否有if-else分支判断？→ 类型应该是Literal，枚举值与分支条件一致\n3. 参数是否传递给外部API有格式要求？→ 类型应该用Literal或pattern约束\n4. 参数是否真正自由？→ 可以用str/int等开放类型",
+      "owner": "质量保障侧",
+      "priority": "P1"
+    }
+  ],
+  "scenario_characteristics": {
+    "type": "工具设计型",
+    "complexity": "中",
+    "key_constraints": [
+      "工具schema与实现逻辑一致性",
+      "参数类型选择（Literal vs str）",
+      "内部硬编码值的显式化"
+    ],
+    "design_principles_revealed": [
+      "Schema是与Agent的契约，应该精确反映实现能力",
+      "内部实现的约束应该在类型层面体现，不要让Agent去猜",
+      "字典key、枚举值等硬编码逻辑必须用Literal显式约束"
+    ]
+  },
+  "related_cases": [
+    "SD_TOOL_NAME_PREFIX_MISMATCH: 同样是工具调用规范问题，但那个是MCP框架层面的命名规则",
+    "SD_HITL_TOOL_IMPLICIT_REQUIREMENT: 同样涉及request_human_review工具，但那个是BusinessRules隐式要求问题"
+  ],
+  "analysis_notes": {
+    "discovery_process": "用户提供evaluation结果，指出check失败。初步分析以为是check_list过度约束（类似之前的案例），去掉了stage参数约束。但用户指出：'这个倒跟business rule没啥关系，主要看tool的参数schema是咋写的'。重新审视工具实现，发现关键代码：if stage not in hitl_responses: return error。这揭示了真正的问题：工具内部依赖特定的key值，但schema没有约束。用户进一步指出：'我考虑的还是对tool的schema做强约束呀，只接受2套入参'。最终确认修复方案：用Literal约束stage和type参数。",
+    "initial_wrong_direction": "最初认为这是check_list过度约束问题，去掉了stage参数验证。但这样做只是掩盖了真正的问题：工具schema设计不合理。正确的做法是修复工具schema，然后check_list自然就可以验证stage参数了。",
+    "key_insight": "这个案例揭示了工具设计的一个核心原则：**schema是Agent看到的契约，应该精确反映工具的真实能力和约束**。如果工具内部实现有硬编码的逻辑（如用参数值查字典、根据参数值走不同分支），这些约束就应该在schema中显式声明（用Literal、enum等类型）。不要用开放类型（str）加文字说明，因为：(1) Agent可能理解错误，使用语义正确但不匹配的值；(2) 测试变成'猜参数值'而不是测试真实能力；(3) 运行时错误而不是调用时类型检查错误。Literal类型约束是一种明确的契约，比文字描述更可靠。",
+    "schema_vs_description_tradeoff": "这个案例也体现了schema设计的一个权衡：\n\n**开放schema（str + description）**：\n- 优点：灵活，Agent可以根据语义自主命名\n- 缺点：如果实现不支持灵活值，会运行时失败\n- 适用：真正自由的文本参数（如content, question）\n\n**约束schema（Literal[...]）**：\n- 优点：明确，Agent知道精确的可选值\n- 缺点：不灵活，增加新值需要修改工具\n- 适用：内部逻辑依赖特定值的参数（如字典key, enum）\n\n对于request_human_review的stage参数，虽然'题材选择'和'信息收集'语义相近，但工具实现依赖精确匹配字典key，因此必须用Literal约束。如果未来想支持灵活命名，需要修改工具实现（如用语义匹配、模糊查找），而不是只改schema。",
+    "comparison_with_type_parameter": "对比分析request_human_review的两个参数：\n\n**type参数**：\n- 原schema：str + description说明'confirmation或question'\n- 实际逻辑：if type == 'confirmation': ... elif type == 'question': ...\n- 修复：Literal['confirmation', 'question']\n- 原因：两个明确的分支，应该用Literal约束\n\n**stage参数**：\n- 原schema：str + description给示例\n- 实际逻辑：if stage not in hitl_responses: return error\n- 修复：Literal['信息收集', '选题简报', '角色设计', '分集大纲']\n- 原因：用作字典key，必须精确匹配\n\n两个参数的共同点：内部实现都依赖特定值，因此都应该用Literal。这验证了原则的一致性。"
+  }
+}

@@ -1,0 +1,87 @@
+{
+  "scenario_id": "shortdrama_core_element_enum",
+  "scenario_type": "shortdrama_creation",
+  "model": "未指定（系统性问题）",
+  "evaluation_file": "evaluation_outputs/20260113_104816/execution/SD_PARTIAL_TASK_TOPIC_ONLY_REVENGE_DRAMA.json",
+  "failure_summary": "Agent在创作revenge_drama题材时使用了sweet_romance的core_element值（'危机'），而不是revenge_drama的正确值（'被欺辱'/'黑化'/'打脸'）。根本原因是unified_scenario_design.yaml和output_specifications.yaml中硬编码了sweet_romance的enum值，并且sample generator没有对environment内容进行占位符替换，导致所有题材的样本都使用了错误的enum约束。",
+  "analysis": {
+    "basic_metrics": {
+      "total_turns": "单轮",
+      "task_completion_rate": "未评估（发现阶段）",
+      "affected_samples": "所有非sweet_romance题材的样本"
+    },
+    "conversation_key_turns": [
+      {
+        "turn": "N/A",
+        "user": "我想做一个复仇爽剧，请帮我完成选题。",
+        "note": "Query明确指定revenge_drama题材，但Agent输出的core_element使用了sweet_romance的值"
+      }
+    ],
+    "expectation_vs_actual": {
+      "expected": "revenge_drama的core_element应为：['被欺辱', '黑化', '打脸']",
+      "actual": "Agent输出的core_element为：'危机'（sweet_romance的值）",
+      "check_evidence": "Agent从environment中的output_specifications.yaml读取到硬编码的enum：['身份反差', '危机', '目标']"
+    }
+  },
+  "final_state_validation": {
+    "tool_boundary": "read_file工具正确返回了environment中的output_specifications.yaml内容",
+    "agent_calls": "Agent正确读取了格式规范，并遵循了规范中定义的enum值",
+    "business_rules": "BusinessRules引导Agent查阅题材专属skill手册，但output_specifications.yaml的硬编码enum优先级更高",
+    "conclusion": "样本设计问题（配置设计缺陷）+ 样本生成器问题（缺少占位符替换逻辑）"
+  },
+  "root_causes": [
+    {
+      "type": "样本设计问题",
+      "dimension": ["配置设计缺陷", "占位符替换缺失"],
+      "evidence": [
+        "unified_scenario_design.yaml第192行：enum: ['身份反差', '危机', '目标']（硬编码sweet_romance值）",
+        "output_specifications.yaml第59行：enum值同样硬编码",
+        "entities.genres定义了正确的题材特定值：hook_core_elements使用value_mapping",
+        "sample generator的_load_environment_files()直接读取文件内容，未进行占位符替换",
+        "check_list正确使用了{{hook_core_elements}}占位符并被替换，但environment内容未替换"
+      ],
+      "reasoning": "这是一个系统性的配置设计问题。unified_scenario_design.yaml正确地在entities.genres中定义了每个题材的专属core_element值，并在check_list中使用{{hook_core_elements}}占位符实现动态替换。但在两处配置文件（unified_scenario_design.yaml的output_specifications和data_pools/output_specifications.yaml）中硬编码了sweet_romance的enum值。更关键的是，sample generator在加载environment文件时，直接使用了文件原始内容，没有对environment内容执行占位符替换逻辑。导致：(1) Agent看到的environment规范中是硬编码的sweet_romance值；(2) checker的check_list中是正确的题材特定值；(3) Agent遵循environment规范却无法通过checker验证。"
+    }
+  ],
+  "improvements": [
+    {
+      "area": "配置设计一致性",
+      "action": "去掉unified_scenario_design.yaml和output_specifications.yaml中硬编码的enum值，改为描述性说明引导Agent查阅skill手册。具体修改：(1) unified_scenario_design.yaml第192行：去掉enum，改为'description: 核心元素（具体枚举值见对应题材的skill手册）'；(2) output_specifications.yaml第59行：改为note说明'枚举值根据题材不同而不同，请查阅data_pools/skills/{genre_type}_skill.md'。",
+      "owner": "配置侧",
+      "priority": "P0"
+    },
+    {
+      "area": "样本生成逻辑完整性",
+      "action": "修改scripts/sample_generator/generate_samples.py的generate_sample()方法，在构建sample['environment']时执行占位符替换：environment = copy.deepcopy(self.environment_files); environment = self.replace_placeholders_recursive(environment, context)。确保每个样本的environment内容包含该样本题材的专属值。",
+      "owner": "样本生成器",
+      "priority": "P0"
+    },
+    {
+      "area": "系统性检查",
+      "action": "建立配置一致性检查机制：(1) 避免在通用配置文件中硬编码entity特定的值；(2) 所有entity特定值应在entities定义中管理；(3) 通过占位符机制实现动态替换；(4) environment内容和check_list都应执行占位符替换。",
+      "owner": "框架侧",
+      "priority": "P1"
+    }
+  ],
+  "scenario_characteristics": {
+    "type": "多实体变量型",
+    "complexity": "中",
+    "key_constraints": [
+      "题材特异性（4个题材各有专属core_element）",
+      "环境一致性（environment规范与checker期望一致）",
+      "占位符替换完整性（所有配置都正确替换）"
+    ],
+    "tested_capabilities": [
+      "C3: Prompt遵循（遵循格式规范中的enum约束）",
+      "C9: 结合领域知识的自主规划（根据题材特点使用正确元素）"
+    ]
+  },
+  "related_cases": [
+    "SD_TOOL_NAME_PREFIX_MISMATCH：同一evaluation中发现的另一个样本生成问题"
+  ],
+  "analysis_notes": {
+    "discovery_process": "通过分析SD_PARTIAL_TASK_TOPIC_ONLY_REVENGE_DRAMA的evaluation结果，发现Agent使用了错误的core_element值。追溯root cause：(1) 首先怀疑checker问题，检查check_list发现期望值正确；(2) 检查Agent的信息来源，发现environment中的output_specifications.yaml包含硬编码enum；(3) 定位到unified_scenario_design.yaml也有硬编码；(4) 检查sample generator逻辑，发现environment未执行占位符替换。",
+    "fix_verification": "修复后重新生成样本，验证：(1) revenge_drama样本的check_list中enum为['被欺辱', '黑化', '打脸']；(2) environment中的output_specifications.yaml不再包含硬编码enum；(3) 所有题材的样本都使用了正确的题材特定值。",
+    "key_insight": "这个案例揭示了一个系统性设计原则：在多实体变量的场景中，通用配置文件（如output_specifications.yaml、unified_scenario_design.yaml的output_specifications部分）应该保持entity无关，只描述结构和约束类型，不应硬编码任何entity特定的值。所有entity特定值应该在entities部分集中定义，通过占位符机制在样本生成时动态注入。"
+  }
+}

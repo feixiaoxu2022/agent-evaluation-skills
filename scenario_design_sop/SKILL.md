@@ -244,6 +244,59 @@ format_specifications:
 2. 格式细节结构化，便于 Checker 验证
 3. Agent 可以通过文件读取获取详细规范（像 Skill 一样）
 
+### 约束力度设计
+
+在统一配置中定义业务规则时，约束的表达力度直接影响Agent的执行效果。
+
+#### 强制性 vs 条件性表达
+
+**核心原则**：目标明确时用强制性，有选择时用条件性
+
+❌ **弱表达**（有解释余地）：
+- "如果用户明确指定X，则执行Y"
+- "建议遵循Z原则"
+- "尽量完成W"
+
+✅ **强表达**（直接传达目标）：
+- "必须完成用户指定的所有X"
+- "所有Y必须包含Z字段"
+- "禁止在W情况下执行V"
+
+**判断标准**：
+- 如果这是check_item要验证的核心目标 → 用强制性
+- 如果Agent需要根据情况判断 → 用条件性
+- 如果是辅助建议 → 可以用建议性
+
+#### 应用示例：明确优先级
+
+当场景涉及多种选择时，明确优先级能避免Agent困惑：
+
+**交互方式优先级**：
+```yaml
+business_rules:
+  checkpoint_confirmation:
+    rule: |
+      交互方式优先级：
+      - 优先通过Human In The Loop性质的工具与用户进行交互
+      - 仅当工具无法支持所需的交互类型时，才在对话回复中直接询问用户
+```
+
+**数据源优先级**：
+```yaml
+business_rules:
+  data_source_priority:
+    rule: |
+      数据源优先级：
+      1. 优先使用用户明确提供的数据
+      2. 当用户未提供时，查询系统记录
+      3. 仅当两者都无时，使用默认值
+```
+
+**设计意图**：
+- 通过优先级排序，让Agent在多选项时有明确依据
+- 避免Agent在交互方式、数据来源等方面产生困惑
+- 确保关键业务目标（如用户指定的集数）不被弱化表达
+
 ## 环境隔离设计（重要）
 
 **执行机制**：每个样本在独立临时目录中执行，由executor自动创建和清理。
@@ -382,6 +435,7 @@ templates:
 |-----|-------------|
 | [ad_campaign](examples/ad_campaign_scenario.yaml) | ROI矩阵、渠道约束、预算分配（复杂规则+算法映射） |
 | [task_assignment](examples/task_assignment_scenario.yaml) | 优先级排序、负载计算、技能匹配（CSP约束满足） |
+| [shortdrama](examples/shortdrama_scenario.yaml) | **创作向场景典范**：信息洋葱（多阶段依赖）、领域知识门槛（skill文档查阅）、文件系统输出+跨文件一致性检查、动态参数处理（集数可变）。展示了约束力度设计和优先级设计的最佳实践。 |
 | [office_admin](examples/office_admin_scenario.yaml) | 信息收集、审批流程、异常处理（多轮变更+信息洋葱） |
 | [bikeshare_prototypes](examples/bikeshare_prototypes/) | 多层用户体系、费用计算（复杂规则） |
 

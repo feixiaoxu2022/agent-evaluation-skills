@@ -1,0 +1,88 @@
+{
+  "scenario_id": "shortdrama_tool_name_prefix",
+  "scenario_type": "shortdrama_creation",
+  "model": "未指定（系统性问题）",
+  "evaluation_file": "evaluation_outputs/20260113_111205/check/cases/check_SD_PARTIAL_TASK_TOPIC_ONLY_FAMILY_SAGA.json",
+  "failure_summary": "Checker验证request_human_review工具调用时失败，报告'工具未被调用或参数不匹配'。实际上Agent正确调用了该工具，但conversation_history中的工具名是'shortdrama_service__request_human_review'（带MCP server前缀），而check_list期望的是'request_human_review'（无前缀）。根本原因是sample generator在生成check_list时，没有为tool_name添加MCP server前缀，导致checker的exact string matching失败。",
+  "analysis": {
+    "basic_metrics": {
+      "total_turns": "单轮",
+      "task_completion_rate": "Agent任务执行正确",
+      "checker_false_negative": "检查项4失败（假失败）"
+    },
+    "conversation_key_turns": [
+      {
+        "turn": 1,
+        "agent_action": "调用工具：shortdrama_service__request_human_review(stage='选题简报', type='confirmation', ...)",
+        "note": "Agent正确调用了HITL工具，工具名包含MCP server前缀"
+      }
+    ],
+    "expectation_vs_actual": {
+      "expected": "check_list期望：tool_name = 'request_human_review'",
+      "actual": "conversation_history实际：tool_name = 'shortdrama_service__request_human_review'",
+      "check_evidence": "check_result显示：'工具 request_human_review 匹配调用 0 次，期望 ≥1'"
+    }
+  },
+  "final_state_validation": {
+    "tool_boundary": "MCP框架规范：所有工具调用在conversation_history中记录为'{service_name}__{tool_name}'格式",
+    "agent_calls": "Agent正确遵循了MCP规范，使用完整的工具名（含前缀）",
+    "business_rules": "BusinessRules中对工具调用的要求是描述性的，未指定前缀格式",
+    "conclusion": "样本设计问题（check_list生成逻辑缺陷）"
+  },
+  "root_causes": [
+    {
+      "type": "样本设计问题",
+      "dimension": ["check_list生成逻辑缺陷", "MCP规范理解不足"],
+      "evidence": [
+        "MCP框架规范：conversation_history中的tool_name格式为'{service_name}__{tool_name}'",
+        "unified_scenario_design.yaml中定义：mcp_service_config.service_name = 'shortdrama_service'",
+        "check_list原始定义：tool_name = 'request_human_review'（无前缀）",
+        "checker实现：使用exact string matching验证tool_name",
+        "sample generator未处理：直接使用unified_scenario_design.yaml中的tool_name，未添加前缀"
+      ],
+      "reasoning": "这是MCP框架集成的系统性问题。在MCP架构中，所有工具调用在运行时会自动添加server前缀以区分不同server的同名工具。Agent在执行时遵循了这一规范，conversation_history中记录的工具名是'shortdrama_service__request_human_review'。但sample generator在生成check_list时，直接使用了unified_scenario_design.yaml中定义的工具名'request_human_review'，没有考虑MCP的前缀机制。Checker的ToolCalledWithParamsChecker使用exact string matching，无法匹配带前缀和不带前缀的工具名，导致所有HITL工具调用验证都失败。这是一个'假失败'问题：Agent行为完全正确，但checker配置错误导致验证失败。"
+    }
+  ],
+  "improvements": [
+    {
+      "area": "样本生成逻辑MCP适配",
+      "action": "修改scripts/sample_generator/generate_samples.py的generate_sample()方法，在处理check_list时，自动为tool_called_with_params类型的检查项添加server前缀：service_name = self.scenario_config['mcp_service_config']['service_name']; for item in check_list: if item.get('check_type') == 'tool_called_with_params': params = item.get('params', {}); if 'tool_name' in params: tool_name = params['tool_name']; if '__' not in tool_name: params['tool_name'] = f'{service_name}__{tool_name}'。",
+      "owner": "样本生成器",
+      "priority": "P0"
+    },
+    {
+      "area": "框架规范文档",
+      "action": "在PROJECT_DEVELOPMENT_STANDARDS或相关文档中明确说明：(1) MCP工具调用的命名规范（{service}__{tool}）；(2) check_list中tool_name应该使用完整名称（含前缀）；(3) sample generator的职责包括将统一配置中的简短工具名转换为MCP完整名称。",
+      "owner": "文档侧",
+      "priority": "P1"
+    },
+    {
+      "area": "Checker设计决策",
+      "action": "讨论并决定：保持checker的strict matching策略（当前选择），还是支持fuzzy matching（如自动添加/移除前缀）。当前决策是保持checker严格匹配，由sample generator负责生成正确格式的check_list。这种设计让checker保持简单稳定，把适配逻辑放在样本生成阶段。",
+      "owner": "架构侧",
+      "priority": "P2"
+    }
+  ],
+  "scenario_characteristics": {
+    "type": "MCP集成型",
+    "complexity": "中",
+    "key_constraints": [
+      "工具命名规范（MCP前缀机制）",
+      "Checker验证策略（exact matching）",
+      "配置转换完整性（unified config → check_list）"
+    ],
+    "tested_capabilities": [
+      "C4: Tool Use（正确调用HITL工具）",
+      "C6: 多轮对话管理与用户引导（关键节点确认）"
+    ]
+  },
+  "related_cases": [
+    "SD_CORE_ELEMENT_ENUM_HARDCODED：同一evaluation中发现的另一个样本生成问题"
+  ],
+  "analysis_notes": {
+    "discovery_process": "通过分析check_SD_PARTIAL_TASK_TOPIC_ONLY_FAMILY_SAGA.json，发现检查项4失败。查看conversation_history发现Agent实际调用了工具，但工具名带有前缀。追溯：(1) 检查MCP框架文档，确认前缀是标准行为；(2) 检查sample generator，发现未对tool_name做前缀处理；(3) 讨论修改方案：修改checker支持模糊匹配 vs 修改sample generator添加前缀，最终选择后者以保持checker简单性。",
+    "initial_wrong_direction": "最初尝试修改env/checker.py支持prefix matching，但用户指出应该修改check_list而非checker。这体现了一个重要原则：数据问题应该在数据生成阶段解决，而不是在验证阶段做容错处理。Checker应该保持严格和稳定，适配逻辑应该前置到样本生成阶段。",
+    "fix_verification": "修复后重新生成样本，验证：(1) check_list中的tool_name为'shortdrama_service__request_human_review'；(2) checker成功匹配工具调用；(3) 所有tool_called_with_params类型的检查项都正确添加了前缀。",
+    "key_insight": "这个案例揭示了在集成第三方框架（如MCP）时的一个关键设计决策：框架的特殊机制（如命名前缀）应该在哪个层次处理？有两种选择：(1) 在验证层做容错（如checker支持模糊匹配）；(2) 在数据生成层做适配（如sample generator添加前缀）。我们选择了第2种，因为：让checker保持简单和稳定；把复杂的适配逻辑集中在样本生成阶段；确保生成的样本直接可用，无需验证时做额外转换。这种设计让系统各层职责更清晰。"
+  }
+}
