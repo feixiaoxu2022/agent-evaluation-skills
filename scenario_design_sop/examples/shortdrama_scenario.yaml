@@ -741,7 +741,7 @@ user_need_templates:
 
   # === 模板2：默认集数 ===
   - need_template_id: "SD_DEFAULT_EPISODE"
-    description: "用户未指定集数，使用默认20集"
+    description: "用户未指定集数，使用默认3集"
     test_type: "positive"
 
     # 用户Query（不提集数）
@@ -752,10 +752,10 @@ user_need_templates:
     expected_outcome:
       topic_brief_created: true
       character_count: ">=4"
-      outline_count: 20  # 默认值
-      script_count: 20   # 默认值
+      outline_count: 3  # 默认值（与System Prompt规则一致）
+      script_count: 3   # 默认值（与System Prompt规则一致）
 
-    # 具体的检查清单（固定20集）
+    # 具体的检查清单（固定3集）
     check_list:
       # === 选题简报检查 ===
       - check_type: "entity_attribute_equals"
@@ -812,13 +812,13 @@ user_need_templates:
           expected_value: {"contains_value": "antagonist", "min_count": "{{min_antagonist_count}}"}
         description: "反派角色数量符合题材要求"
 
-      # === 大纲检查（固定20集） ===
+      # === 大纲检查（默认3集） ===
       - check_type: "create_operation_verified"
         params:
           entity_type: "file"
           filter_conditions: {"path_pattern": "workspace/outlines/*.json"}
-          expected_count: 20
-        description: "大纲集数为20集"
+          expected_count: 3
+        description: "大纲集数为3集"
 
       - check_type: "json_schema"
         params:
@@ -834,13 +834,13 @@ user_need_templates:
           reference_field: "character_name"
         description: "大纲中角色名称与角色卡一致"
 
-      # === 剧本检查（固定20集） ===
+      # === 剧本检查（默认3集） ===
       - check_type: "create_operation_verified"
         params:
           entity_type: "file"
           filter_conditions: {"path_pattern": "workspace/scripts/*.json"}
-          expected_count: 20
-        description: "剧本集数为20集"
+          expected_count: 3
+        description: "剧本集数为3集"
 
       - check_type: "json_schema"
         params:
