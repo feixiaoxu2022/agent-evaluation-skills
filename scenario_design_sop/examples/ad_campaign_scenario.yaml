@@ -171,7 +171,9 @@ entities:
       applied_strategy_type:
         type: "enum"
         values: ["cash_flow_conservative", "balanced_growth", "aggressive_scaling"]
-        description: "实际应用的策略类型，基于客户现实情况"
+        description: "实际应用的策略类型（仅用于人工分析和业务报告，不参与自动验证）"
+        validation: "none"
+        reason: "策略正确性通过具体约束验证来隐式判断（ROI目标、渠道选择、预算分配），无需显式验证策略标签"
       
       # 预期表现（现实化）
       expected_overall_roi:
@@ -455,8 +457,11 @@ business_rules:
         type: "float"  
         description: "总预算金额"
         constraints: "必须满足最低测试预算要求"
-    
+
     # 🔥 基于现有checker的原子化成功验证标准
+    # 说明：以下success_criteria按业务含义分组（基础操作验证、策略约束验证、行业约束验证、预算约束验证），
+    # 实际样本生成器会将这些分组扁平化为具体的check_list检查项。每个check_list项使用原子化的checker
+    # 类型（entity_attribute_comparison, create_operation_verified）进行端到端验证。
     success_criteria:
       - criteria: "campaign_creation_verified"
         description: "验证新的广告活动成功创建"
@@ -778,6 +783,200 @@ business_rules:
         type: "realistic_strategy_implementation"
         scenario_classification: "constraint_based_campaign_creation"
 
+# ============================================
+# 预期答案合成算法设计
+# ============================================
+# 描述如何基于advertiser约束生成现实可行的预算和验证检查项
+
+expected_answer_synthesis_algorithm:
+  algorithm_name: "Budget Generation and Constraint Validation Algorithm"
+  algorithm_type: "基于现实约束的确定性预算生成和验证算法"
+
+  core_design_principles:
+    realism: "预算基于advertiser实际约束条件生成，确保可行性"
+    feasibility: "预算满足行业渠道的最低测试要求"
+    determinism: "相同约束输入产生确定的验证检查项"
+    discretization: "预算离散化减少浮点数比较误判"
+
+  algorithm_components:
+
+    budget_calculation:
+      description: "根据advertiser约束计算现实可行的预算"
+      input: "advertiser（cash_flow_situation, tier_level, monthly_ad_budget_capacity, industry）"
+      output: "离散化的总预算金额（元）"
+
+      calculation_steps:
+        step_1_minimum_budget:
+          description: "计算最低预算需求"
+          logic:
+            - "根据行业确定必选渠道：B2B_saas→Google(3000元), B2C_ecommerce→Facebook(3500元), education/finance/healthcare→Google(3000元)"
+            - "tight现金流需预留30%优化预算：总预算 = 渠道预算 / 0.7"
+            - "其他现金流：总预算 = 渠道预算"
+          formula: "min_required = channel.min_testing_budget / allocation_ratio"
+
+        step_2_budget_range:
+          description: "基于现金流确定预算范围"
+          tight_cash_flow:
+            base: "最低需求"
+            multiplier: "1.0~1.8（保守策略）"
+          stable_cash_flow:
+            base: "max(最低需求, 15000)"
+            multiplier: "1.1~2.0（适度增长）"
+          abundant_cash_flow:
+            base: "max(最低需求, 25000)"
+            multiplier: "1.2~2.2（充裕扩张）"
+
+        step_3_tier_adjustment:
+          description: "按公司发展阶段调整"
+          startup: "倍数×0.7~1.0"
+          growth: "不调整"
+          enterprise: "倍数×1.2~1.5"
+
+        step_4_capacity_limit:
+          description: "应用月度预算上限"
+          constraint: "预算≤月度承受能力×0.7"
+
+        step_5_discretization:
+          description: "预算离散化策略"
+          thousand_rounding: "先按千元取整"
+          stable_cash_flow: "量化为5000倍数，下界15000"
+          abundant_cash_flow: "量化为20000倍数，下界20000"
+          tight_cash_flow: "保持千元取整"
+          rationale: "避免浮点数精度导致主渠道预算比例判断错误"
+
+    constraint_validation_generation:
+      description: "根据advertiser约束动态生成验证检查项"
+      input: "advertiser对象, total_budget金额"
+      output: "check_list检查项列表"
+
+      deduplication_mechanism:
+        description: "使用字典去重机制"
+        structure: "constraint_items = {constraint_id: check_config}"
+        benefit: "避免多约束产生重复检查（如B2B+tight都要求Google）"
+
+      check_categories:
+        basic_operations:
+          count: 3
+          items:
+            - "campaign创建验证"
+            - "optimization_log记录验证"
+            - "user_notification发送验证"
+
+        budget_reasonableness:
+          count: 1
+          check: "总预算≤用户指定预算"
+
+        cash_flow_constraints:
+          tight:
+            - "渠道数量=1"
+            - "唯一渠道预算≤总预算×0.7"
+          stable:
+            - "主渠道预算≥79.5%且≤80.5%（多渠道时）"
+            - "渠道数量1~3个"
+          abundant:
+            - "主渠道预算≥64.5%且≤65.5%（多渠道时）"
+            - "渠道数量1~3个"
+
+        industry_constraints:
+          B2B_saas: "Google渠道预算>0"
+          B2C_ecommerce: "Facebook渠道预算>0"
+          education_finance_healthcare: "Google渠道预算>0"
+
+        experience_constraints:
+          description: "从layered_roi_matrix查询ROI目标"
+          check: "target_roi = roi_matrix[cash_flow][experience]"
+          examples:
+            - "tight+beginner → 1.8"
+            - "stable+intermediate → 2.8"
+            - "abundant+expert → 3.8"
+
+        channel_budget_constraints:
+          small_budget_or_tight:
+            condition: "预算<10000 或 现金流=tight"
+            check: "渠道数量=1"
+          multi_channel:
+            condition: "预算≥10000 且 现金流≠tight"
+            checks:
+              - "渠道数量≤3"
+              - "每个渠道≥min_testing_budget"
+              - "主渠道预算分配比例（stable:80%, abundant:65%）"
+
+  algorithm_workflow:
+    step_1_load_data:
+      action: "加载数据池"
+      sources:
+        - "advertisers数据（包含约束条件）"
+        - "channels数据（包含最低预算要求）"
+        - "业务规则文档"
+        - "ROI矩阵配置"
+
+    step_2_select_advertisers:
+      action: "选择多样化advertisers"
+      strategy: "按约束组合分组，优先覆盖关键组合"
+      key_combinations:
+        - "tight_beginner"
+        - "stable_intermediate"
+        - "abundant_expert"
+        - "各行业类型"
+
+    step_3_generate_samples:
+      action: "为每个advertiser生成样本"
+      steps:
+        - "计算现实可行的预算"
+        - "构建mock_db环境"
+        - "生成用户query"
+        - "生成验证检查项"
+        - "生成system prompt"
+        - "组装完整样本"
+
+    step_4_quality_assurance:
+      checks:
+        - "约束覆盖度验证"
+        - "预算与检查项一致性"
+        - "样本可复现性"
+
+  algorithm_key_insights:
+    why_budget_discretization:
+      problem: "浮点数精度导致预算比例判断错误"
+      example: "15000元×80%应为12000元，而非12000.000000001"
+      solution: "stable用5000倍数，abundant用20000倍数"
+      benefit: "避免等值检查误判"
+
+    why_constraint_dict:
+      problem: "多约束可能产生重复检查"
+      example: "B2B+tight都要求Google"
+      solution: "字典去重，key为约束标识"
+      benefit: "每个约束只验证一次"
+
+    why_tight_70percent:
+      reason: "紧张现金流需预留优化预算"
+      constraint: "主渠道≤70%，预留30%"
+      benefit: "确保快速调整能力"
+
+    why_roi_matrix:
+      reason: "ROI目标需匹配现实能力"
+      dimensions: "3现金流×3经验=9组合"
+      range: "1.8~3.8"
+      benefit: "目标既有挑战又可达"
+
+    why_industry_hard_constraint:
+      reason: "行业渠道特性差异显著"
+      constraints:
+        B2B: "Google（专业搜索）"
+        B2C: "Facebook（社交购物）"
+        education_finance_healthcare: "Google（权威性）"
+
+    why_dynamic_checks:
+      reason: "不同约束需不同验证"
+      solution: "根据约束动态生成检查项"
+      benefit: "精确验证，避免误报漏报"
+
+  sample_quality_criteria:
+    diversity: "覆盖关键约束组合"
+    consistency: "预算生成与检查项同步"
+    determinism: "相同约束产生相同结果"
+    realism: "预算满足业务可行性"
+
 # Rule Engine执行配置
 rule_execution_mapping:
   rule_4_1:
@@ -798,8 +997,9 @@ scenario_type_mapping:
   "realistic_strategy_implementation": "constraint_based_campaign_creation"
 
 # 🔥 现实化策略配置矩阵
+# 说明：仅保留代码实际使用的配置，其他约束规则已内嵌在business_rules中
 realistic_strategy_config:
-  # 分层ROI矩阵（现金流状况 + 经验水平）
+  # 分层ROI矩阵（现金流状况 + 经验水平） - 被合成器代码使用
   layered_roi_matrix:
     tight:
       beginner: 1.8
@@ -813,25 +1013,12 @@ realistic_strategy_config:
       beginner: 2.5
       intermediate: 3.0
       expert: 3.8
-  
-  # 现金流状况 → 策略类型映射
-  cash_flow_strategy_mapping:
-    tight: "cash_flow_conservative"
-    stable: "balanced_growth"
-    abundant: "aggressive_scaling"
-  
-  # 行业 → 必选渠道映射（硬约束）
-  industry_required_channels:
-    B2C_ecommerce: ["channel_002"]  # 必须选择Facebook (channel_002)
-    B2B_saas: ["channel_001"]       # 必须选择Google (channel_001)
-    education: ["channel_001"]      # 必须选择Google (channel_001)
-    finance: ["channel_001"]        # 必须选择Google (channel_001)
-    healthcare: ["channel_001"]     # 必须选择Google (channel_001)
-  
-  # 渠道数量约束映射
-  channel_count_constraints:
-    small_budget_or_tight_cash: 1      # 小预算或现金流紧张：只能1个渠道
-    other_situations: [1, 2, 3]        # 其他情况：可以1-3个渠道
+
+  # 其他约束规则说明（已内嵌在business_rules.realistic_strategy_rules中）:
+  # - 现金流策略映射: tight→单渠道Google, stable→双渠道80/20, abundant→多渠道65/35
+  # - 行业渠道约束: B2C必选Facebook, B2B必选Google, 教育/金融/医疗必选Google
+  # - 渠道数量约束: 小预算或tight现金流限制1个渠道，其他情况1-3个渠道
+  # 实际合成器将这些规则转化为约束验证逻辑，不从配置读取
 
 # 一致性验证规则
 consistency_rules:

@@ -84,12 +84,10 @@ business_rules:
         - "将任务的required_hours加到分配人员的current_workload_hours上"
         - "在assignment_rationale中说明分配理由（如能力匹配、负载考虑、紧急处理、复杂度匹配、依赖优先等）"
     success_criteria:
-      - "选择的worker.availability_status为available"
-      - "选择的worker.capabilities与task.required_capabilities有交集"
-      - "分配逻辑符合对应场景的优先级原则"
       - "task.status更新为assigned"
-      - "分配人员的current_workload_hours正确增加了task.required_hours"
-      - "assignment_rationale包含合理的分配依据说明"
+      - "task.assigned_worker_id设置为选中的worker_id"
+      - "分配人员的current_workload_hours正确增加了task.required_hours（浮点数精度容差±0.01小时）"
+      - "分配逻辑符合对应场景的优先级原则（通过验证分配对象正确性隐式验证）"
     sample_generation:
       query_templates:
         - "请帮忙分配一下待处理的任务"
@@ -109,6 +107,198 @@ business_rules:
         ensure_capability_match: "至少1个worker的capabilities与task.required_capabilities有交集"
         ensure_workload_variety: "available匹配worker的current_workload_hours有差异"
 
+# ============================================
+# 预期答案合成算法设计
+# ============================================
+# 本section描述样本生成器如何计算预期分配结果（ground truth）
+
+expected_answer_synthesis_algorithm:
+  algorithm_name: "QueueBasedAssignmentAlgorithm"
+  algorithm_type: "基于优先队列的确定性分配算法"
+  algorithm_file: "legacy_files/assignment_algorithm.py"
+
+  core_design_principles:
+    determinism: "算法必须产生唯一确定的分配结果，确保样本的ground truth准确性"
+    transparency: "分配逻辑完全透明，Agent可预测任务处理顺序和分配结果"
+    consistency: "相同输入必然产生相同输出，不依赖随机性"
+
+  algorithm_components:
+    priority_calculation:
+      description: "计算任务优先级的核心函数"
+      implementation: "calculate_priority(task) -> (urgency_level, complexity_score)"
+      logic: "返回二元组，用于优先队列排序，值越大优先级越高"
+      uniqueness_requirement: "所有任务的(urgency_level, complexity_score)组合必须唯一"
+
+    queue_management:
+      description: "三个核心数据结构管理任务状态"
+      ready_queue:
+        type: "优先队列（最大堆）"
+        content: "已就绪的任务（无依赖或依赖已满足）"
+        ordering: "按(-urgency_level, -complexity_score, task_id)排序"
+      waiting_queue:
+        type: "哈希表"
+        content: "等待依赖满足的任务 {task_id: task}"
+      completed_set:
+        type: "集合"
+        content: "已完成分配的任务ID集合"
+
+    dependency_handling:
+      description: "依赖关系的图结构管理和激活逻辑"
+      dependency_graphs:
+        forward: "dependencies - {task_id: [dep_task_ids]} 正向依赖图"
+        backward: "dependents - {task_id: [dependent_task_ids]} 反向依赖图"
+      activation_logic:
+        trigger: "任务完成后，查找反向依赖图找出所有依赖当前任务的任务"
+        check: "检查被依赖任务的所有依赖是否都已完成"
+        action: "如果依赖全部满足，从waiting_queue移除并加入ready_queue"
+      dependency_validation:
+        completeness_check: "验证所有依赖任务都存在于任务集合中"
+        circular_check: "使用DFS检测循环依赖"
+        cleanup: "自动清理无效依赖引用"
+
+    worker_selection_strategies:
+      description: "根据任务特性选择最优人员的四种策略"
+      basic_filtering:
+        availability: "只选择availability_status='available'的人员"
+        capability_match: "worker.capabilities必须完全覆盖task.required_capabilities（集合包含关系）"
+
+      strategy_1_normal:
+        condition: "urgency_level < 8 且 complexity_score < 7"
+        name: "常规任务分配"
+        logic: "_select_by_lowest_workload()"
+        selection: "选择负载最低的候选人（current_workload_hours最小）"
+        tie_breaking: "如果多人负载相同则返回None（确保唯一性）"
+
+      strategy_2_urgent:
+        condition: "urgency_level ≥ 8"
+        name: "紧急任务分配"
+        logic: "_select_by_lowest_workload_then_experience()"
+        selection: "优先选择负载最低的候选人"
+        tie_breaking: "负载相同时选择经验等级最高的（senior > intermediate > junior）"
+
+      strategy_3_complex:
+        condition: "complexity_score ≥ 7"
+        name: "复杂任务分配"
+        logic: "_select_by_senior_experience()"
+        selection: "只在senior级别人员中选择"
+        fallback: "如果无senior人员则返回None"
+        tie_breaking: "多个senior时选择负载较低的"
+
+      strategy_4_urgent_complex:
+        condition: "urgency_level ≥ 8 且 complexity_score ≥ 7"
+        name: "紧急复杂任务分配"
+        logic: "_select_by_experience()"
+        selection: "优先选择经验最高的候选人（senior优先）"
+        tie_breaking: "同等经验时选择负载最低的"
+
+  algorithm_workflow:
+    step_1_initialization:
+      action: "构建依赖关系图并初始化队列"
+      operations:
+        - "加载所有pending状态的任务"
+        - "构建正向和反向依赖图（dependencies, dependents）"
+        - "清理无效依赖引用"
+        - "检查循环依赖（DFS）"
+        - "将无依赖任务加入ready_queue"
+        - "将有依赖任务加入waiting_queue"
+
+    step_2_queue_processing:
+      action: "循环处理就绪队列中的任务"
+      loop_condition: "while ready_queue非空"
+      operations:
+        - "从ready_queue弹出最高优先级任务（heappop）"
+        - "基本筛选：过滤available且技能匹配的候选人"
+        - "策略选择：根据任务特性调用对应的人员选择策略"
+        - "分配执行：更新task状态、assigned_worker_id、worker.current_workload_hours"
+        - "依赖激活：将当前任务加入completed_set，激活其依赖任务"
+
+    step_3_dependency_activation:
+      action: "激活等待中的依赖任务"
+      trigger: "任务从ready_queue处理完成后"
+      operations:
+        - "查找反向依赖图中依赖当前任务的所有任务"
+        - "检查每个依赖任务的所有依赖是否都在completed_set中"
+        - "如果依赖全部满足，从waiting_queue移除并加入ready_queue"
+
+    step_4_validation:
+      action: "验证分配结果的正确性和完整性"
+      checks:
+        - "所有pending任务都被分配（无剩余任务）"
+        - "waiting_queue为空（无未激活的依赖任务）"
+        - "每个任务都有唯一的分配结果"
+
+  sample_generation_workflow:
+    generator_class: "ScenarioGenerator"
+    generation_strategy: "随机组合 + 唯一性筛选"
+
+    step_1_random_scenario:
+      description: "随机选择workers和tasks组成候选场景"
+      worker_selection: "随机选择4-8个workers，确保至少70%为available状态"
+      task_selection: "随机选择2-5个tasks，使用递归依赖闭包确保依赖完整性"
+      dependency_closure_logic:
+        - "随机选择种子任务"
+        - "递归添加种子任务的所有依赖"
+        - "重复直到达到目标任务数"
+        - "如果添加闭包会超过目标数，则寻找更小的任务闭包"
+
+    step_2_uniqueness_validation:
+      description: "验证场景是否有唯一的最优分配方案"
+      check_1_priority_uniqueness:
+        checker: "_check_task_processing_order_uniqueness()"
+        requirement: "所有任务的(urgency_level, complexity_score)组合必须唯一"
+        reason: "确保任务处理顺序完全确定，无歧义"
+      check_2_assignment_uniqueness:
+        checker: "validate_scenario_uniqueness()"
+        process: "运行完整的队列分配算法，验证是否成功分配所有任务"
+        validation:
+          - "每个任务都能找到满足条件的候选人"
+          - "每个选择策略都能返回唯一最优人员（无并列）"
+          - "所有任务最终都被分配"
+
+    step_3_ground_truth_generation:
+      description: "生成预期分配结果作为样本的ground truth"
+      output_format:
+        - "expected_assignments: 包含每个任务的预期分配对象和理由"
+        - "expected_worker_updates: 包含每个worker的预期负载变化"
+        - "assignment_sequence: 记录实际的任务处理顺序"
+      quality_assurance:
+        - "分配结果符合所有业务规则约束"
+        - "工作负载更新计算准确（浮点数精度控制）"
+        - "分配理由清晰且与策略一致"
+
+    success_criteria:
+      description: "合格样本必须满足的条件"
+      criteria:
+        - "优先级唯一性：(urgency_level, complexity_score)组合无重复"
+        - "依赖完整性：所有依赖任务都存在于任务集合中"
+        - "分配唯一性：每个任务都有唯一的最优人员"
+        - "状态一致性：初始状态所有任务为pending，所有worker为available"
+      rejection_cases:
+        - "存在优先级冲突（多个任务优先级相同）→ 重新生成"
+        - "存在循环依赖 → 重新生成"
+        - "某个任务无满足条件的候选人 → 重新生成"
+        - "人员选择出现并列（如多人负载相同）→ 重新生成"
+
+  algorithm_key_insights:
+    why_queue_based:
+      reason: "依赖任务需要动态激活，简单的静态排序无法处理"
+      benefit: "队列机制支持依赖任务完成后立即插入处理序列"
+
+    why_priority_uniqueness:
+      reason: "确保任务处理顺序完全确定，Agent可准确预测"
+      benefit: "避免因处理顺序不同导致分配结果差异"
+      implementation: "样本生成时强制验证，不合格样本直接丢弃"
+
+    why_reject_ties:
+      reason: "当多个候选人条件完全相同时，无法确定唯一最优"
+      benefit: "确保ground truth的准确性和可复现性"
+      example: "两个人负载都是5.0h，无法判断哪个更优 → 样本不合格"
+
+    workload_precision:
+      issue: "浮点数精度问题可能导致误判"
+      solution: "±0.01小时容差，验证时使用rounded_comparison"
+      implementation: "float_comparison_config.precision_tolerance: 0.01"
+
 # 映射关系配置（简化为单一规则）
 rule_execution_mapping:
   universal_assignment_rule:
@@ -117,12 +307,9 @@ rule_execution_mapping:
     expected_outcome_type: "principle_based_assignment"
 
 checker_type_mapping:
-  assignment_created: "create_operation_verified"
-  task_status_updated: "entity_attribute_equals" 
-  capability_match_verified: "tool_called_with_params"  # 简化为验证工具调用
-  experience_level_prioritized: "entity_attribute_equals"  # 验证选择的worker经验等级
-  workload_updated_correctly: "entity_attribute_equals"  # 验证分配人员的工作负载正确增加(浮点数精度处理)
-  capacity_utilization_optimized: "entity_attribute_equals"  # 验证分配后的容量利用率
+  task_status_updated: "entity_attribute_equals"  # 验证任务状态更新为assigned
+  task_assignment_verified: "entity_attribute_equals"  # 验证assigned_worker_id正确设置为预期worker_id
+  workload_updated_correctly: "entity_attribute_equals"  # 验证分配人员的current_workload_hours正确增加(浮点数精度容差±0.01)
   
 # 浮点数比较配置
 float_comparison_config:
@@ -157,6 +344,18 @@ sample_generation:
   
 # 数据约束 - 基于约束规则的场景要求（精简版）
 business_constraints:
+  verification_strategy:
+    description: "基于结果的端到端验证策略"
+    explanation: "实际系统经过评测迭代后，采用简化的验证策略，通过验证最终分配结果的正确性来隐式验证前置条件（能力匹配、可用性等）和优先级原则"
+    core_checks:
+      - "任务状态正确更新（pending → assigned）"
+      - "分配对象符合优先级原则（通过验证assigned_worker_id是否为预期值）"
+      - "工作负载精确更新（验证current_workload_hours增加量，浮点数容差±0.01小时）"
+    implicit_verification:
+      - "能力匹配：通过分配结果正确性隐式验证（若能力不匹配，预期分配对象就会错误）"
+      - "可用性验证：通过分配对象正确性隐式验证（若状态非available，不会被选中）"
+      - "优先级原则：通过预期worker_id验证（预期值已根据优先级原则计算）"
+    rationale: "端到端验证比过程验证更robust，避免过度依赖中间状态和工具调用细节"
   worker_constraints:
     min_workers: 4
     max_workers: 8
