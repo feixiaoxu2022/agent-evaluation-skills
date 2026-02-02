@@ -9,17 +9,37 @@ description: 对Agent评测失败案例进行根因分析，准确区分Agent能
 
 对评测失败案例进行根因分析，准确区分问题类型并提供改进建议。核心原则：**基于事实证据进行归因，不停留在表面现象**。
 
+## 分析工作流
+
+### 核心要求
+
+**⚠️ 必须逐个分析，禁止批量处理**
+- 批量只能统计表面现象，无法挖掘根因
+- 每个 case 都要完整走完 8 步流程
+
+**📄 两层输出文档**
+
+1. **归因文档**（相同原因聚合）
+   - 格式：`analysis/{root_cause_type}_{timestamp}.json`
+   - 相同根因的 cases 写到同一个文档
+   - **至少一个 case 的分析过程必须完备**（证明分析可信）
+   - 遵循 `templates/analysis_report_schema.json`
+
+2. **总结文档**（分析完成后）
+   - 格式：`analysis/summary_{timestamp}.json`
+   - 呈现归因类别分布、关键发现
+
 ## Quick Start
 
 ```python
 # 1. 读取样本数据
 sample = read_json("evaluation_results/xxx.json")
 
-# 2. 按8步流程分析（见下方）
+# 2. 按8步流程分析（见下方）- 必须逐个分析
 
 # 3. 使用决策树归因（见 references/decision_tree.md）
 
-# 4. 生成分析报告并保存
+# 4. 生成分析报告
 analysis_report = {
     "scenario_id": "LA_ST_SICK_LEAVE_001",
     "model": "gpt-4o",
@@ -30,18 +50,25 @@ analysis_report = {
     "improvements": [...]
 }
 
-# 5. 写入文档（必须！）
-from datetime import datetime
-timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-output_path = f"analysis/{scenario_id}_analysis_{timestamp}.json"
+# 5. 写入归因文档（相同根因聚合）
+root_cause_type = "agent_tool_use"  # 根据归因类型命名
+output_path = f"analysis/{root_cause_type}_{timestamp}.json"
 write_json(output_path, analysis_report)
+
+# 6. 所有分析完成后，写总结文档
+summary = {
+    "total_cases": 10,
+    "root_cause_distribution": {...},
+    "key_findings": [...]
+}
+write_json(f"analysis/summary_{timestamp}.json", summary)
 ```
 
 **重要**：
-- ⚠️ **必须将分析结论写入JSON文件**，路径格式：`analysis/{scenario_id}_analysis_{timestamp}.json`（相对于工作目录）
-- ⚠️ JSON格式必须符合 `templates/analysis_report_schema.json` 的定义（相对于本SKILL.md的路径）
-- ⚠️ 确保包含完整的分析思路、证据链和改进建议
-- ⚠️ 时间戳格式：`YYYYMMDD_HHMMSS`，避免重复分析时文件覆盖
+- ⚠️ **逐个分析，不能批量**
+- ⚠️ **归因文档按根因类型聚合**，至少一个 case 分析完备
+- ⚠️ JSON 格式符合 `templates/analysis_report_schema.json`
+- ⚠️ 时间戳格式：`YYYYMMDD_HHMMSS`
 
 ## 输出格式
 

@@ -1,0 +1,375 @@
+{
+  "annotation_metadata": {
+    "scenario": "shortdrama",
+    "failure_pattern_id": "FP7",
+    "failure_pattern_name": "过度询问用户（业务规则矛盾）",
+    "annotation_date": "2026-01-19",
+    "annotator": "Claude Sonnet 4.5",
+    "model_evaluated": "ernie-5.0-thinking-preview",
+    "evaluation_date": "2026-01-16",
+    "annotation_purpose": "记录由Prompt矛盾导致的Agent过度询问失败模式，为场景设计提供反面教材"
+  },
+
+  "failure_pattern_overview": {
+    "pattern_id": "FP7",
+    "pattern_name": "过度询问用户",
+    "description": "Agent成功读取了技能文件，具备完成任务的能力，但在开始创作前过度询问用户集数、平台偏好等信息。Agent选择了规则5的'也可询问'选项，虽然在字面上不违反规则，但与规则2的强制性默认值逻辑产生了矛盾，导致用户模拟器未响应，对话终止",
+    "affected_sample_count": 10,
+    "total_sample_count": 33,
+    "percentage": "30%",
+    "severity": "high",
+    "root_cause_attribution": "样本设计问题 - 业务规则存在矛盾（规则2强制使用默认值 vs 规则5允许询问用户）"
+  },
+
+  "root_cause_analysis": {
+    "root_cause_type": "样本设计问题 - Prompt矛盾",
+    "problem_description": "BusinessRules中存在矛盾的指令，导致Agent可以选择询问而非直接使用默认值",
+
+    "contradictory_rules": {
+      "rule_2": {
+        "content": "如果用户未指定集数，则使用默认值：3集",
+        "interpretation": "强制性（must use default）",
+        "expected_behavior": "用户未指定 → 直接使用3集 → 开始创作"
+      },
+      "rule_5_situation_2_original": {
+        "content": "集数信息缺失 - 用户未指定集数（可使用默认值3集，也可询问确认）",
+        "interpretation": "可选性（can use OR can ask）",
+        "actual_behavior": "用户未指定 → 询问用户 → 等待用户回复 → 对话终止"
+      }
+    },
+
+    "why_contradiction_is_problematic": [
+      "规则2是强制性的（'则使用'），规则5是可选性的（'可使用...也可询问'）",
+      "两条规则对同一情况给出了不同的指导，Agent可以选择遵循其中任何一条",
+      "当Agent选择遵循规则5的'也可询问'选项时，虽然不违反规则字面意思，但违反了规则2的本意",
+      "用户模拟器被设计为不回复非必要问题，因此Agent询问导致对话终止"
+    ],
+
+    "pattern_variants": [
+      {
+        "variant_id": "FP7-A",
+        "variant_name": "规则间显性矛盾：询问集数",
+        "sample_count": 6,
+        "examples": [
+          "SD_DEFAULT_EPISODE_REVENGE_DRAMA",
+          "SD_PARTIAL_TASK_TOPIC_CHARACTER_REVENGE_DRAMA",
+          "SD_WITH_EPISODE_COUNT_SWEET_ROMANCE_30"
+        ],
+        "user_input_characteristic": "用户提供了题材，未指定集数",
+        "agent_question": "您希望这部XX短剧做几集？如果不指定，默认是3集",
+
+        "root_cause_detail": {
+          "problem_type": "规则间显性矛盾",
+          "contradictory_rules": {
+            "rule_2": "如果用户未指定集数，则使用默认值：3集（强制性）",
+            "rule_5_situation_2": "集数信息缺失 - 可使用默认值3集，也可询问确认（可选性）"
+          },
+          "why_contradictory": "同一情况（用户未指定集数），规则2要求强制使用默认值，规则5却允许询问",
+          "agent_behavior": "Agent选择了规则5的'也可询问'选项，虽然字面上不违规，但与规则2的强制性意图冲突"
+        },
+
+        "attribution": {
+          "primary": "样本设计问题 - 业务规则矛盾",
+          "secondary": "无",
+          "reasoning": "Agent的行为在规则5的字面意思下是被允许的，问题根源在于规则设计存在矛盾"
+        },
+
+        "fix_effectiveness": "修改后的规则5明确'集数：使用规则2的默认值'，直接消除了矛盾"
+      },
+      {
+        "variant_id": "FP7-B",
+        "variant_name": "规则内部隐性模糊：询问创作细节",
+        "sample_count": 4,
+        "examples": [
+          "SD_LARGE_EPISODE_COUNT_FAMILY_SAGA_50",
+          "SD_PARTIAL_TASK_TOPIC_CHARACTER_FAMILY_SAGA"
+        ],
+        "user_input_characteristic": "用户提供了题材和集数，信息完整",
+        "agent_question": "您希望聚焦在哪个具体年代？",
+
+        "root_cause_detail": {
+          "problem_type": "规则内部隐性模糊",
+          "ambiguous_boundary": {
+            "rule_5_situation_2": "当以下关键信息缺失时，必须主动询问用户：1. 题材信息缺失",
+            "unclear_point": "'题材信息'的边界不清晰 - 年代背景是否属于'题材信息'？还是属于'创作细节'？"
+          },
+          "why_problematic": "规则没有明确划分'必须询问的信息'和'可自行决策的细节'的边界",
+          "agent_behavior": "Agent自行判断'年代背景'属于必询信息，过度扩大了'题材信息'的范围"
+        },
+
+        "attribution": {
+          "primary": "样本设计问题 - 规则边界模糊",
+          "secondary": "Agent能力问题（轻微） - 倾向于过度询问，缺乏自主决策",
+          "reasoning": "主要问题是规则5没有明确哪些信息必须询问、哪些应该自行决策。次要问题是Agent在边界不清时倾向于保守（询问），而非主动（决策）",
+          "note": "在修改后的规则下，如果Agent仍然询问年代背景，则主要归因变为Agent能力问题"
+        },
+
+        "fix_effectiveness": "修改后的规则5增加兜底条款'其他细节：根据skill手册自行决策'，明确划分了边界"
+      }
+    ],
+
+    "variants_relationship": {
+      "unified_root_cause": "规则5缺少清晰的'询问边界'机制",
+      "manifestation_difference": {
+        "FP7-A": "规则间显性矛盾（规则2 vs 规则5）",
+        "FP7-B": "规则内部隐性模糊（规则5的询问范围不清）"
+      },
+      "unified_fix": "增加总则 + 明确列举必询信息 + 兜底条款",
+      "design_principle": "不要用模糊的描述定义行为边界，要用明确的清单 + 兜底条款"
+    }
+  },
+
+  "evidence_samples": [
+    {
+      "sample_id": "SD_DEFAULT_EPISODE_REVENGE_DRAMA",
+      "user_input": "我想做一个女性复仇爽剧。",
+      "conversation_summary": {
+        "turn_1": "User: 我想做一个女性复仇爽剧。",
+        "turn_2": "Agent: [read_file: revenge_skill.md] → 失败",
+        "turn_3": "Agent: [list_directory: data_pools/skills/] → 成功",
+        "turn_4": "Agent: [read_file: revenge_drama_skill.md] → 成功",
+        "turn_5": "Agent: 我已经查阅了复仇爽剧的创作手册，了解了该题材的核心特征和创作要点。现在开始为您创作女性复仇爽剧。\n\n根据业务规则，我需要先确认几个关键信息：\n1. **集数要求**：您希望这部复仇爽剧做几集？如果不指定，默认是3集\n2. **平台偏好**：小程序平台（快节奏打脸）、APP平台（智慧对决+情感层次）还是TV平台（家族恩怨深度）？\n\n请告诉我您的偏好，我将立即开始创作选题简报。",
+        "outcome": "对话终止 - 用户模拟器未响应"
+      },
+      "agent_capability_assessment": {
+        "file_exploration": "✅ 优秀（成功使用list_directory找到正确文件）",
+        "skill_manual_reading": "✅ 优秀（成功读取revenge_drama_skill.md）",
+        "task_understanding": "✅ 优秀（理解需要创作复仇爽剧）",
+        "prompt_following": "⚠️ 字面遵循（遵循了规则5的'也可询问'选项，但与规则2冲突）"
+      },
+      "root_cause_for_this_sample": {
+        "attribution": "样本设计问题 - 规则间显性矛盾",
+        "why": "Agent的行为（询问集数）在规则5的字面意思下是被允许的（'可使用默认值3集，也可询问确认'），问题根源在于规则2和规则5对同一情况给出了矛盾的指导",
+        "not_agent_issue": "Agent并未违反任何单条规则，而是规则设计本身存在矛盾"
+      },
+      "why_failure": "规则2要求'则使用默认值'（强制），规则5允许'也可询问'（可选），Agent选择了后者",
+      "should_user_simulator_respond": false,
+      "reason_no_response": "用户已经提供了完整的需求（题材明确），Agent应该直接使用默认值开始工作，而非询问非必要信息"
+    },
+    {
+      "sample_id": "SD_LARGE_EPISODE_COUNT_FAMILY_SAGA_50",
+      "user_input": "我想做一个年代家庭短剧，请帮我完成前50集的创作。",
+      "user_input_analysis": {
+        "genre": "✅ 明确（年代家庭）",
+        "episode_count": "✅ 明确（50集）",
+        "missing_info": "无 - 用户已提供完整的启动信息"
+      },
+      "conversation_summary": {
+        "turn_1": "User: 我想做一个年代家庭短剧，请帮我完成前50集的创作。",
+        "turn_2-4": "Agent: [探索并成功读取family_saga_skill.md]",
+        "turn_5": "Agent: 我已了解年代家庭短剧的创作要点...为了更好地为您创作，我需要确认一个关键信息：您希望聚焦在哪个具体年代？",
+        "outcome": "对话终止 - 用户模拟器未响应"
+      },
+      "agent_capability_assessment": {
+        "file_exploration": "✅ 优秀",
+        "skill_manual_reading": "✅ 优秀",
+        "task_understanding": "✅ 优秀（理解需要创作50集）",
+        "prompt_following": "⚠️ 边界判断不当（将'年代背景'误判为必询信息）",
+        "autonomous_decision_making": "❌ 不足（应该根据skill手册自行决策，而非询问用户）"
+      },
+      "root_cause_for_this_sample": {
+        "attribution_primary": "样本设计问题 - 规则边界模糊",
+        "attribution_secondary": "Agent能力问题（轻微） - 过度询问倾向",
+        "why_primary": "规则5只说'题材信息缺失时必须询问'，但没有明确'题材信息'的边界。Agent将'年代背景'理解为'题材信息'的一部分，这种理解在规则模糊的情况下是可以理解的",
+        "why_secondary": "即使规则边界不清，Agent也可以选择更主动的策略（根据skill手册自行决策年代背景），但它选择了更保守的策略（询问用户）。这反映了Agent在不确定情况下倾向于过度询问",
+        "note": "在修改后的规则下（明确'其他细节：根据skill手册自行决策'），如果Agent仍然询问年代背景，则主要归因变为Agent能力问题"
+      },
+      "why_failure": "用户已明确题材和集数，年代背景属于创作细节，应该由Agent根据skill手册自行决策",
+      "should_user_simulator_respond": false,
+      "reason_no_response": "年代背景是创作细节，应该由Agent根据skill手册自行决策，用户模拟器被设计为只回答必要信息"
+    }
+  ],
+
+  "affected_samples_full_list": [
+    {
+      "sample_id": "SD_DEFAULT_EPISODE_REVENGE_DRAMA",
+      "dialog_turns": 11,
+      "files_created": 0,
+      "inquiry_type": "集数+平台偏好"
+    },
+    {
+      "sample_id": "SD_LARGE_EPISODE_COUNT_FAMILY_SAGA_50",
+      "dialog_turns": 9,
+      "files_created": 0,
+      "inquiry_type": "年代背景"
+    },
+    {
+      "sample_id": "SD_LARGE_EPISODE_COUNT_REVENGE_DRAMA_30",
+      "dialog_turns": 9,
+      "files_created": 0,
+      "inquiry_type": "过度确认"
+    },
+    {
+      "sample_id": "SD_LARGE_EPISODE_COUNT_SWEET_ROMANCE_30",
+      "dialog_turns": 9,
+      "files_created": 0,
+      "inquiry_type": "过度确认"
+    },
+    {
+      "sample_id": "SD_PARTIAL_TASK_TOPIC_CHARACTER_FAMILY_SAGA",
+      "dialog_turns": 9,
+      "files_created": 0,
+      "inquiry_type": "年代背景"
+    },
+    {
+      "sample_id": "SD_PARTIAL_TASK_TOPIC_CHARACTER_REVENGE_DRAMA",
+      "dialog_turns": 11,
+      "files_created": 0,
+      "inquiry_type": "集数+平台偏好"
+    },
+    {
+      "sample_id": "SD_PARTIAL_TASK_TOPIC_CHARACTER_SWEET_ROMANCE",
+      "dialog_turns": 11,
+      "files_created": 0,
+      "inquiry_type": "其他信息"
+    },
+    {
+      "sample_id": "SD_PARTIAL_TASK_TOPIC_ONLY_REVENGE_DRAMA",
+      "dialog_turns": 9,
+      "files_created": 0,
+      "inquiry_type": "过度确认"
+    },
+    {
+      "sample_id": "SD_WITH_EPISODE_COUNT_MYSTERY_THRILLER_30",
+      "dialog_turns": 9,
+      "files_created": 0,
+      "inquiry_type": "过度确认"
+    },
+    {
+      "sample_id": "SD_WITH_EPISODE_COUNT_SWEET_ROMANCE_30",
+      "dialog_turns": 11,
+      "files_created": 0,
+      "inquiry_type": "过度确认"
+    }
+  ],
+
+  "solution_implemented": {
+    "fix_type": "样本设计优化 - 消除Prompt矛盾",
+    "files_modified": [
+      "tmp_scenarios/shortdrama/BusinessRules.md",
+      "tmp_scenarios/shortdrama/unified_scenario_design.yaml"
+    ],
+    "modification_date": "2026-01-19",
+
+    "changes_made": {
+      "before": {
+        "rule_2": "如果用户未指定集数，则使用默认值：3集",
+        "rule_5_situation_2": "集数信息缺失 - 用户未指定集数（可使用默认值3集，也可询问确认）"
+      },
+      "after": {
+        "rule_5_general_principle": "只询问规则5明确列出的缺失信息，其他情况使用默认值或自行决策",
+        "rule_5_situation_2": "仅当题材信息缺失时必须询问用户（如：用户只说'我想做短剧'）",
+        "rule_5_other_info": "集数：使用规则2的默认值（3集）\n其他细节：根据skill手册自行决策"
+      }
+    },
+
+    "key_improvements": [
+      "增加总则：明确规定'只询问规则5明确列出的缺失信息'",
+      "删除矛盾表述：移除'也可询问确认'的可选性描述",
+      "明确集数逻辑：在规则5中显式引用规则2，强调使用默认值",
+      "明确细节决策：规定其他细节由Agent根据skill手册自行决策，无需询问",
+      "修复规则编号：解决原有的两个'规则5'编号问题"
+    ],
+
+    "expected_impact": {
+      "before_fix": "10个样本（30%）因Agent过度询问导致对话终止",
+      "after_fix": "Agent应直接使用默认值开始创作，预期这10个样本成功率提升",
+      "verification_method": "重新生成samples并执行评测，验证FP7失败模式是否消失"
+    }
+  },
+
+  "capability_dimension_analysis": {
+    "attribution_summary": "主要是样本设计问题，但两种子模式的具体归因略有不同",
+
+    "variant_specific_attribution": {
+      "FP7-A_explicit_contradiction": {
+        "primary": "样本设计问题 - 规则间显性矛盾（100%）",
+        "secondary": "无",
+        "reasoning": "Agent的行为在规则5的字面意思下完全合规，问题纯粹来自规则设计矛盾"
+      },
+      "FP7-B_implicit_ambiguity": {
+        "primary": "样本设计问题 - 规则边界模糊（80%）",
+        "secondary": "Agent能力问题 - 过度询问倾向（20%）",
+        "reasoning": "主要是规则没有明确边界，但Agent选择保守策略（询问）而非主动策略（决策）也反映了轻微的能力缺陷"
+      }
+    },
+
+    "why_not_pure_agent_capability_issue": [
+      "Agent的行为（询问用户）在字面上并未违反任何单条规则",
+      "规则5明确写着'可使用默认值3集，也可询问确认'（FP7-A），或者没有明确'题材信息'边界（FP7-B）",
+      "Agent成功完成了所有准备工作（环境探索、手册读取、需求理解）",
+      "问题根源主要在于规则设计的缺陷，而非Agent理解或执行能力不足"
+    ],
+
+    "agent_capabilities_assessment": {
+      "capability_4_tool_use": "✅ 优秀（成功使用list_directory探索环境）",
+      "capability_2_context_understanding": "✅ 优秀（准确理解了用户需求）",
+      "capability_5_task_planning": "✅ 优秀（规划了完整的创作流程）",
+      "capability_3_prompt_following": "⚠️ 字面遵循（FP7-A：遵循了规则5的可选项；FP7-B：边界判断不当）",
+      "capability_9_autonomous_decision_making": "❌ 不足（FP7-B中缺乏自主决策能力，倾向于过度询问）"
+    },
+
+    "model_behavior_observation": "ernie-5.0在遇到可选性指令（'可以A，也可以B'）或边界不清的情况时，倾向于选择'询问用户'而非'使用默认值'或'自行决策'。这是一种谨慎保守的策略，但在本场景中与业务意图不符。",
+
+    "key_insight": "这个失败模式主要暴露的是场景设计问题。FP7-A是纯粹的规则矛盾问题；FP7-B既有规则模糊问题，也有Agent倾向于过度询问的能力问题。正确的解决方案是优先从源头消除规则矛盾和模糊，然后观察修复后Agent的表现，再判断是否存在纯粹的能力问题。",
+
+    "design_vs_capability": {
+      "wrong_approach": "期待Agent能够：(1)识别出规则间的矛盾 (2)推断设计者的真实意图 (3)在边界不清时自行判断正确行为",
+      "right_approach": "在规则设计阶段：(1)消除规则间的矛盾 (2)明确行为边界（询问清单+兜底条款） (3)提供唯一的正确行为路径"
+    },
+
+    "post_fix_expectation": {
+      "FP7-A_samples": "修复后应该100%解决，因为矛盾已消除",
+      "FP7-B_samples": "修复后大幅改善，但如果Agent仍然询问年代背景等细节，则证明存在纯粹的Agent能力问题"
+    }
+  },
+
+  "lessons_learned": {
+    "for_scenario_design": [
+      "❌ 反面教材：不同规则之间不能出现矛盾，即使是隐性矛盾（强制 vs 可选）",
+      "✅ 最佳实践：默认值逻辑应该是明确的、单向的，不应提供'也可询问'的退路",
+      "✅ 最佳实践：增加总则性描述，明确规定何时可询问、何时应使用默认值",
+      "✅ 最佳实践：在每条规则中显式引用相关规则，建立规则间的逻辑链条",
+      "✅ 最佳实践：用'必须''仅当''无需'等明确词汇，避免'可以''也可'等模糊表述"
+    ],
+
+    "for_business_rules_authoring": [
+      "规则间一致性检查：编写完所有规则后，检查是否存在矛盾",
+      "默认值语义明确：'使用默认值'应该是强制性的，不应附加可选项",
+      "询问清单明确化：明确列出哪些信息缺失时必须询问，其他情况不应询问",
+      "避免模棱两可：'可使用A，也可使用B'这种表述会导致Agent选择困难"
+    ],
+
+    "for_check_list_design": [
+      "Check项应该与业务规则形成闭环：失败时能明确引用具体规则",
+      "逻辑自洽原则：期望值、规则、check逻辑三者必须一致",
+      "师出有名原则：每个check失败都应该能追溯到明确的规则违反"
+    ]
+  },
+
+  "related_failure_patterns": {
+    "FP3_prompt_following": "Prompt遵循不足的另一表现形式，但FP3通常指未遵循格式规范，而FP7指未遵循业务逻辑",
+    "FP1_no_output": "FP7是FP1的一个子类型，但根因不同：FP7是过度询问导致对话终止，FP1可能是能力不足导致完全未创建",
+    "difference": "FP7的Agent具备完成任务的能力（成功读取手册、理解需求），只是在执行策略上选择了错误的选项"
+  },
+
+  "quality_checklist": {
+    "完整阅读了所有对话内容": true,
+    "结论基于对话事实而非prompt假设": true,
+    "区分了用户实际表达vs设定期望": true,
+    "识别了prompt矛盾作为根本原因": true,
+    "提供了具体的修复方案": true,
+    "沉淀了可复用的设计经验": true,
+    "映射了核心能力维度": true,
+    "提供了完整的证据链": true
+  },
+
+  "references": {
+    "analysis_report": "/Users/feixiaoxu01/Documents/agents/agent_auto_evaluation/universal_scenario_framework/tmp_scenarios/shortdrama/evaluation_outputs/20260116_102918_ernie-5.0/analysis/COMPLETE_ONE_BY_ONE_FAILURE_ANALYSIS_20260119.md",
+    "evaluation_output_dir": "/Users/feixiaoxu01/Documents/agents/agent_auto_evaluation/universal_scenario_framework/tmp_scenarios/shortdrama/evaluation_outputs/20260116_102918_ernie-5.0/",
+    "modified_files": [
+      "/Users/feixiaoxu01/Documents/agents/agent_auto_evaluation/universal_scenario_framework/tmp_scenarios/shortdrama/BusinessRules.md",
+      "/Users/feixiaoxu01/Documents/agents/agent_auto_evaluation/universal_scenario_framework/tmp_scenarios/shortdrama/unified_scenario_design.yaml"
+    ]
+  }
+}

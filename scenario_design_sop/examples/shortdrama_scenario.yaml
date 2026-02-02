@@ -10,8 +10,8 @@ domain: "creative_content"
 
 # 默认配置
 default_config:
-  default_episode_count: 20
-  description: "当用户未指定集数时，使用默认值20集"
+  default_episode_count: 3
+  description: "当用户未指定集数时，使用默认值3集"
 
 # --- 运行时配置 ---
 runtime_config:
@@ -960,15 +960,15 @@ user_need_templates:
         params:
           entity_type: "file"
           filter_conditions: {"path_pattern": "workspace/outlines/*.json"}
-          expected_count: 20
-        description: "大纲集数为20集"
+          expected_count: 3
+        description: "大纲集数为3集"
 
       - check_type: "create_operation_verified"
         params:
           entity_type: "file"
           filter_conditions: {"path_pattern": "workspace/scripts/*.json"}
-          expected_count: 20
-        description: "剧本集数为20集"
+          expected_count: 3
+        description: "剧本集数为3集"
 
       # === 验证关键节点确认（至少3次：选题、角色、大纲）===
       - check_type: "tool_called_with_params"
